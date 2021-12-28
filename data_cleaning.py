@@ -10,8 +10,6 @@ import gensim
 import csv
 import pickle as pkl
 
-
-
 try:
     print("downloading common wordlisml_tags_lookupts")
     nltk.download('stopwords')
@@ -40,6 +38,50 @@ def load(path):
         return None
 
 
+class parsePlots:
+    def __init__(self, path):
+        self.path = path
+        self.EOSection = "-------------------------------------------------------------------------------\n"
+
+        self.df = self.createDF()
+
+    def lineGen(self):
+        with open(self.path, 'rb') as file:
+            for l in file.readlines():
+                try:
+                    yield l.decode("utf-8")
+                except:
+                    pass
+
+    def sectionGen(self):
+        lines = self.lineGen()
+        section = []
+
+        for line in lines:
+            if set(line) != set(self.EOSection):
+                section.append(line)
+            else:
+                yield section
+
+    def partsGen(self):
+        sections = self.sectionGen()
+        for section in sections:
+            balnc_indices = [index for index, element in enumerate(section) if element == "\n"]
+
+            plot = section[0]
+            title = section[balnc_indices[0]:balnc_indices[1]]
+
+            yield plot, title
+
+    def createDF(self):
+        plotGen = self.partsGen()
+        plot_df = pd.DataFrame(columns=["title", "plot"])
+        for plot, title in plotGen:
+            plot_df.append({"title": title, "plot": plot})
+
+        return plot_df
+
+
 class Doc2VecSimilarity:
     def __init__(self, corpus, vec_size=50):
         self.training_corpus = self.preProcesCorpus(corpus)
@@ -65,7 +107,6 @@ class Doc2VecSimilarity:
                 word_freq[word] += 1
 
         index = 0
-
 
         final_corpus = [[word for word in aritcle if word_freq[word] > 1] for aritcle in working_corpus]
 
@@ -104,7 +145,6 @@ class Doc2VecSimilarity:
         :return: train doc2vec model
         """
         corpus = self.training_corpus
-
 
         corpus = list(corpus for corpus, _ in groupby(corpus))
 
@@ -150,6 +190,7 @@ class ItemVec:
             # to create the modified DF
             self.insertTagWords()
             self.sperateGenres()
+            self.insertTagVector()
         else:
             self.plots = None
             self.tags = None
@@ -157,7 +198,17 @@ class ItemVec:
 
             self.load()
 
-        self.insertTagVector()
+        self.insertPlotVector()
+
+    def cleanPlots(self):
+        plots = self.plots
+
+        def getTagVec(row):
+            return pd.Series(self.tag_vectoriser.queryDoc2VecModel(row['top_tags']))
+
+        vecs = self.genres.apply(lambda row: getTagVec(row), axis=1)
+        self.genres[[f"tag_vec_{i}" for i in range(self.tv_len)]] = vecs
+        self.save()
 
     def save(self):
         store(self.plots, "data/temp/plots.pkl")
@@ -213,14 +264,30 @@ class ItemVec:
             self.tag_vectoriser = Doc2VecSimilarity(corpus, vec_size=self.tv_len)
             store(self.tag_vectoriser, "data/temp/tag_vectorise")
 
+        for i in range(self.tv_len):
+            self.genres[f"tag_vec_{i}"] = np.zeros(self.genres.shape[0])
+
+        def getTagVec(row):
+            return pd.Series(self.tag_vectoriser.queryDoc2VecModel(row['top_tags']))
+
+        vecs = self.genres.apply(lambda row: getTagVec(row), axis=1)
+        self.genres[[f"tag_vec_{i}" for i in range(self.tv_len)]] = vecs
+        self.save()
+
+    def insertPlotVector(self):
+        corpus = self.genres['top_tags'].values
+
+        if self.tag_vectoriser is None:
+            self.tag_vectoriser = Doc2VecSimilarity(corpus, vec_size=self.tv_len)
+            store(self.tag_vectoriser, "data/temp/tag_vectorise")
 
         for i in range(self.tv_len):
             self.genres[f"tag_vec_{i}"] = np.zeros(self.genres.shape[0])
 
-
         def getTagVec(row):
             return pd.Series(self.tag_vectoriser.queryDoc2VecModel(row['top_tags']))
-        vecs = self.genres.apply(lambda row: getTagVec(row), axis = 1)
+
+        vecs = self.genres.apply(lambda row: getTagVec(row), axis=1)
         self.genres[[f"tag_vec_{i}" for i in range(self.tv_len)]] = vecs
         self.save()
 
@@ -244,7 +311,7 @@ class ItemVec:
 
 
 def main():
-    plotParts = "data/movies_genres.csv"
+    plotParts = "data/plots/IMDB/plot.list"
     ml_tags_genome = "data/ml-25m/genome-scores.csv"
     ml_tags_lookup = "data/ml-25m/genome-tags.csv"
     ml_genres = "data/ml-25m/movies.csv"
@@ -252,18 +319,17 @@ def main():
 
     tag_vec = load("data/temp/tag_vectorise")
 
-
+    plot_df = parsePlots(plotParts).df
     ml_tags = getCSV(ml_tags_lookup)
 
     load_stored_data = True
     if not load_stored_data:
-        plotParts = getCSV(plotParts, sep="\t")
+        # plotParts = getCSV(plotParts, sep="\t")
         ml_tags_genome = getCSV(ml_tags_genome)
         ml_genras = getCSV(ml_genres)
 
-
-
-        items = ItemVec(plots=plotParts, tags=ml_tags_genome, tag_labels=ml_tags, genres=ml_genras, tag_vectoriser=tag_vec)
+        items = ItemVec(plots=plot_df, tags=ml_tags_genome, tag_labels=ml_tags, genres=ml_genras,
+                        tag_vectoriser=tag_vec)
     else:
         items = ItemVec(None, None, ml_tags, None, load=True, tag_vectoriser=tag_vec)
 
