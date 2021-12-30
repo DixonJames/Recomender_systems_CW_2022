@@ -7,16 +7,18 @@ import nltk
 from nltk.corpus import stopwords
 from scipy import spatial
 import gensim
+import re
 import csv
 import pickle as pkl
 
-try:
-    print("downloading common wordlisml_tags_lookupts")
-    nltk.download('stopwords')
-    nltk.download('punkt')
-except:
-    print("couldn't download latest lists")
 
+def updateNltkWords():
+    try:
+        print("downloading common wordlisml_tags_lookupts")
+        nltk.download('stopwords')
+        nltk.download('punkt')
+    except:
+        print("couldn't download latest lists")
 
 def getCSV(path, sep=None):
     if sep is None:
@@ -38,8 +40,11 @@ def load(path):
         return None
 
 
-class parsePlots:
+class Parseplots:
     def __init__(self, path):
+        """
+        :param path: path of ftp.fu-berlin.de/pub/misc/movies/database/frozendata/plot.list
+        """
         self.path = path
         self.EOSection = "-------------------------------------------------------------------------------\n"
 
@@ -62,27 +67,34 @@ class parsePlots:
                 section.append(line)
             else:
                 yield section
+                section = []
 
     def partsGen(self):
         sections = self.sectionGen()
         for section in sections:
+            #print(section)
             balnc_indices = [index for index, element in enumerate(section) if element == "\n"]
 
-            plot = section[0]
-            title = section[balnc_indices[0]:balnc_indices[1]]
-
-            yield plot, title
+            try:
+                title = section[0]
+                plot = section[balnc_indices[0]:balnc_indices[max(1, 0)]]
+                yield " ".join(plot).replace("\n", " ").replace("PL:", " ") , re.search('"(.*)"', title).group(1).replace("#", "").lower()
+            except:
+                continue
 
     def createDF(self):
         plotGen = self.partsGen()
         plot_df = pd.DataFrame(columns=["title", "plot"])
         for plot, title in plotGen:
-            plot_df.append({"title": title, "plot": plot})
+            plot_df = plot_df.append({"title": title, "plot": plot}, ignore_index=True)
 
         return plot_df
 
 
 class Doc2VecSimilarity:
+    """
+    for creating doc vectors in relation to a corpus of docs
+    """
     def __init__(self, corpus, vec_size=50):
         self.training_corpus = self.preProcesCorpus(corpus)
 
@@ -312,6 +324,7 @@ class ItemVec:
 
 def main():
     plotParts = "data/plots/IMDB/plot.list"
+
     ml_tags_genome = "data/ml-25m/genome-scores.csv"
     ml_tags_lookup = "data/ml-25m/genome-tags.csv"
     ml_genres = "data/ml-25m/movies.csv"
@@ -319,7 +332,7 @@ def main():
 
     tag_vec = load("data/temp/tag_vectorise")
 
-    plot_df = parsePlots(plotParts).df
+    plot_df = Parseplots(plotParts).df
     ml_tags = getCSV(ml_tags_lookup)
 
     load_stored_data = True
@@ -337,4 +350,5 @@ def main():
 
 
 if __name__ == '__main__':
+    updateNltkWords()
     main()
