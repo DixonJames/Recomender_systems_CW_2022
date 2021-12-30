@@ -1,10 +1,34 @@
 import numpy as np
 import pandas as pd
-from data_cleaning import getCSV
+from data_cleaning import getCSV, load, UserVec, ItemVec
+
+
+class reduceSize:
+    def __init__(self, ratings, min_movie_raings=50, min_user_reviews=10):
+        self.whole_df = ratings
+        self.min_movie_raings = min_movie_raings
+        self.min_user_reviews = min_user_reviews
+
+        self.df_droped_users = self.userDrop(self.whole_df)
+        self.df_droped_movies = self.movieDrop(self.whole_df)
+
+        self.df_droped_movies_users = self.movieDrop(self.df_droped_users)
+
+    def userDrop(self, df):
+        count = df['userId'].value_counts()
+        invalid = list(count.loc[count < self.min_movie_raings].index)
+        return df.loc[df['userId'].isin(invalid)]
+
+    def movieDrop(self, df):
+        count = df['movieId'].value_counts()
+        invalid = list(count.loc[count < self.min_user_reviews].index)
+        return df.loc[df['userId'].isin(invalid)]
+
 
 
 class MatrixFact:
-    def __init__(self, ratings_df, iterations, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005, verbose=False):
+    def __init__(self, ratings_df, iterations, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
+                 verbose=False, addtional_user_data=None, addtional_movie_data=None):
         """
         :param ratings_df: padas dataframe containing the original user ratings
         :param iterations: number of iterations to carry on the SGD for
@@ -18,6 +42,8 @@ class MatrixFact:
         self.test_prop = test_proportion
         self.l4 = l4
         self.gamma = gamma
+        self.addtional_user_data = addtional_user_data
+        self.addtional_movie_data = addtional_movie_data
 
         self.users_n, self.item_n = self.ratings_df["userId"].unique().shape[0], \
                                     self.ratings_df["movieId"].unique().shape[0]
@@ -59,7 +85,7 @@ class MatrixFact:
         p_u = self.item_v[item_i]
 
         return (true_predictions - prediction) ** 2 + self.l4 * (
-                    b_u ** 2 + b_i ** 2 + np.linalg.norm(q_i) ** 2 + np.linalg.norm(p_u) ** 2)[0]
+                b_u ** 2 + b_i ** 2 + np.linalg.norm(q_i) ** 2 + np.linalg.norm(p_u) ** 2)[0]
 
     def allPredictions(self):
         all = np.zeros((self.users_n, self.item_n))
@@ -84,7 +110,7 @@ class MatrixFact:
         row_i = 1
         for _, row in self.ratings_df.iterrows():
             if self.verbose:
-                #print(f"{int(row_i * 100 / self.ratings_df.shape[0])}%")
+                # print(f"{int(row_i * 100 / self.ratings_df.shape[0])}%")
                 row_i += 1
             record = row
             userId, movieId, r = record["userId"], record["movieId"], record["rating"]
@@ -111,37 +137,20 @@ class MatrixFact:
             self.SDE()
             predicitons = self.allPredictions()
             regularised_squared_error = sum(predicitons["reg_sqr_err"])
-            avg_regularised_squared_error = sum(predicitons["reg_sqr_err"])/predicitons.shape[0]
+            avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
             print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
-        pass
-
-
-class reduceSize:
-    def __init__(self, ratings, min_movie_raings=50, min_user_reviews=10):
-        self.whole_df = ratings
-        self.min_movie_raings = min_movie_raings
-        self.min_user_reviews = min_user_reviews
-
-        self.df_droped_users = self.userDrop(self.whole_df)
-        self.df_droped_movies = self.movieDrop(self.whole_df)
-
-        self.df_droped_movies_users = self.movieDrop(self.df_droped_users)
-
-    def userDrop(self, df):
-        count = df['userId'].value_counts()
-        invalid = list(count.loc[count < self.min_movie_raings].index)
-        return df.loc[df['userId'].isin(invalid)]
-
-    def movieDrop(self, df):
-        count = df['movieId'].value_counts()
-        invalid = list(count.loc[count < self.min_user_reviews].index)
-        return df.loc[df['userId'].isin(invalid)]
 
 
 def main():
+    #after gone though pre-procesesing
     ml_ratings = "data/ml-25m/ratings.csv"
+    movie_data = load("data/temp/genres.pkl")
+    user_data = UserVec(getCSV(ml_ratings)).user_df
+    item_data = ItemVec(None, None, None, None, load=True).clean_items
+
     ratings = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
-    mat = MatrixFact(ratings, iterations=10, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005, verbose=True)
+    mat = MatrixFact(ratings, iterations=10, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
+                     verbose=True, addtional_user_data=user_data, addtional_movie_data=movie_data)
 
 
 if __name__ == '__main__':
