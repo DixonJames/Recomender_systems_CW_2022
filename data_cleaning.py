@@ -14,6 +14,8 @@ import csv
 import pickle as pkl
 
 
+
+
 def updateNltkWords():
     try:
         print("downloading common wordlisml_tags_lookupts")
@@ -192,7 +194,7 @@ class Doc2VecSimilarity:
 
 
 class ItemVec:
-    def __init__(self, plots, tags, tag_labels, genres, load=False, tag_vectoriser=None, plot_vectoriser=None):
+    def __init__(self,  tags, tag_labels, genres,plots=None, load=False, tag_vectoriser=None, plot_vectoriser=None):
         """
 
         :param plots: df of movie plots
@@ -263,6 +265,10 @@ class ItemVec:
         return clean.replace({np.NAN:0.0})
 
     def cleanPlots(self):
+        """
+        for time being unused
+        :return:
+        """
         plots = self.plots
 
         def getTagVec(row):
@@ -273,12 +279,12 @@ class ItemVec:
         self.save()
 
     def save(self):
-        store(self.plots, "data/temp/plots.pkl")
+        #store(self.plots, "data/temp/plots.pkl")
         store(self.tags, "data/temp/tags.pkl")
         store(self.genres, "data/temp/genres.pkl")
 
     def load(self):
-        self.plots = load("data/temp/plots.pkl")
+        #self.plots = load("data/temp/plots.pkl")
         self.tags = load("data/temp/tags.pkl")
         self.genres = load("data/temp/genres.pkl")
 
@@ -391,7 +397,7 @@ class UserVec:
         return user_df
 
 
-def main():
+def prepareData():
     plotParts = "data/plots/IMDB/plot.list"
 
     ml_tags_genome = "data/ml-25m/genome-scores.csv"
@@ -410,7 +416,8 @@ def main():
         ml_tags_genome = getCSV(ml_tags_genome)
         ml_genras = getCSV(ml_genres)
 
-        items = ItemVec(plots=plot_df, tags=ml_tags_genome, tag_labels=ml_tags, genres=ml_genras,
+        users = UserVec(getCSV(ml_ratings))
+        items = ItemVec(tags=ml_tags_genome, tag_labels=ml_tags, genres=ml_genras,
                         tag_vectoriser=tag_vec)
     else:
         users = UserVec(getCSV(ml_ratings))
@@ -418,6 +425,8 @@ def main():
 
     # ml_ratings = getCSV("data/ml-25m/ratings.csv")
 
+    return items, users
+
 
 if __name__ == '__main__':
-    main()
+    prepareData()

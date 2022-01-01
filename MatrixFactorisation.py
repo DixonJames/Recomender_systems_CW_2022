@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from data_cleaning import getCSV, load, UserVec, ItemVec
+from data_cleaning import getCSV, load, UserVec, ItemVec, store
 
 
 class reduceSize:
@@ -25,10 +25,9 @@ class reduceSize:
         return df.loc[df['userId'].isin(invalid)]
 
 
-
 class MatrixFact:
     def __init__(self, ratings_df, iterations, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
-                 verbose=False, addtional_user_data=None, addtional_movie_data=None):
+                 verbose=False):
         """
         :param ratings_df: padas dataframe containing the original user ratings
         :param iterations: number of iterations to carry on the SGD for
@@ -42,8 +41,6 @@ class MatrixFact:
         self.test_prop = test_proportion
         self.l4 = l4
         self.gamma = gamma
-        self.addtional_user_data = addtional_user_data
-        self.addtional_movie_data = addtional_movie_data
 
         self.users_n, self.item_n = self.ratings_df["userId"].unique().shape[0], \
                                     self.ratings_df["movieId"].unique().shape[0]
@@ -52,13 +49,15 @@ class MatrixFact:
         self.movie_n_to_index = self.ratings_df["movieId"].unique()
 
         self.user_bias, self.item_bias = np.zeros(self.users_n), np.zeros(self.item_n)
-
-        self.user_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
-        self.item_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
-
         self.global_bias = np.mean(self.ratings_df.loc[self.ratings_df["rating"] != 0])["rating"]
 
-        self.learnModelParams()
+        self.user_latent_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
+        self.item_latent_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
+
+        self.user_additional_latent_v = np.random.normal(
+            size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
+        self.item_additional_latent_v = np.random.normal(
+            size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
 
     def originalRating(self, i, u):
         return \
@@ -72,7 +71,7 @@ class MatrixFact:
         b_u = self.user_bias[user_i]
         b_i = self.item_bias[item_i]
         b_glob = self.global_bias
-        mat_mul = self.user_v[user_i].dot(self.item_v[item_i].T)
+        mat_mul = self.user_latent_v[user_i].dot(self.item_latent_v[item_i].T)
 
         prediction = b_u + b_i + b_glob + mat_mul
 
@@ -81,8 +80,8 @@ class MatrixFact:
     def regularisedSquaredError(self, prediction, true_predictions, user_i, item_i):
         b_u = self.user_bias[user_i]
         b_i = self.item_bias[item_i]
-        q_i = self.user_v[user_i]
-        p_u = self.item_v[item_i]
+        q_i = self.user_latent_v[user_i]
+        p_u = self.item_latent_v[item_i]
 
         return (true_predictions - prediction) ** 2 + self.l4 * (
                 b_u ** 2 + b_i ** 2 + np.linalg.norm(q_i) ** 2 + np.linalg.norm(p_u) ** 2)[0]
@@ -114,24 +113,29 @@ class MatrixFact:
                 row_i += 1
             record = row
             userId, movieId, r = record["userId"], record["movieId"], record["rating"]
-            i, j = np.where(self.user_n_to_index == userId), np.where(self.movie_n_to_index == movieId)
+            user_i, item_i = np.where(self.user_n_to_index == userId)[0], np.where(self.movie_n_to_index == movieId)[0]
 
-            user_i = np.where(self.user_n_to_index == row["userId"])[0]
-            item_i = np.where(self.movie_n_to_index == row["movieId"])[0]
             prediction = self.predict(user_i, item_i)
             e = (r - prediction)
 
             # copy part of user vector as used in updating item vector
-            user_bais_i_cpy = self.user_v[i]
+            user_bais_i_cpy = self.user_latent_v[user_i]
 
             # update all
-            self.user_bias[i] += self.gamma * (e - self.l4 * self.user_bias[i])
-            self.item_bias[j] += self.gamma * (e - self.l4 * self.item_bias[j])
+            self.user_bias[user_i] += self.gamma * (e - self.l4 * self.user_bias[user_i])
+            self.item_bias[item_i] += self.gamma * (e - self.l4 * self.item_bias[item_i])
 
-            self.user_v[i] += self.gamma * (e * self.item_v[j] - self.l4 * self.user_v[i])
-            self.item_v[j] += self.gamma * (e * user_bais_i_cpy - self.l4 * self.item_v[j])
+            self.user_latent_v[user_i] += self.gamma * (
+                    e * self.item_latent_v[item_i] - self.l4 * self.user_latent_v[user_i])
+            self.item_latent_v[item_i] += self.gamma * (e * user_bais_i_cpy - self.l4 * self.item_latent_v[item_i])
 
-    def learnModelParams(self):
+    def user_info_prediction(self, user_i):
+        user_i = int(user_i)
+        mat_mul = self.user_latent_v[user_i].dot(self.user_additional_latent_v[user_i].T)
+        prediction = mat_mul + np.mean(self.user_latent_v.dot(self.user_additional_latent_v.T))
+        return prediction
+
+    def learnModelParams(self, side_info=False):
         for train_iteration in range(self.iterations):
             print(f"{train_iteration}/{self.iterations}")
             self.SDE()
@@ -141,17 +145,22 @@ class MatrixFact:
             print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
 
 
-def main():
-    #after gone though pre-procesesing
+def factoriseMatrix():
+    # after gone though pre-procesesing
     ml_ratings = "data/ml-25m/ratings.csv"
     movie_data = load("data/temp/genres.pkl")
+
     user_data = UserVec(getCSV(ml_ratings)).user_df
     item_data = ItemVec(None, None, None, None, load=True).clean_items
 
     ratings = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
+
     mat = MatrixFact(ratings, iterations=10, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
-                     verbose=True, addtional_user_data=user_data, addtional_movie_data=movie_data)
+                     verbose=True)
+    mat.learnModelParams()
+
+    return mat, user_data, item_data
 
 
 if __name__ == '__main__':
-    main()
+    factoriseMatrix()
