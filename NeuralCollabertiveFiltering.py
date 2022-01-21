@@ -1,4 +1,4 @@
-from MatrixFactorisation import MatrixFact, factoriseMatrix
+from MatrixFactorisation import MatrixFact, factoriseMatrix, reduceSize
 from data_cleaning import store, prepareData, UserVec, ItemVec, getCSV
 import pickle as pkl
 import torch
@@ -133,6 +133,7 @@ class NuralCollab:
         return self.constructvector(user_latent_vec, item_vec)
 
     def train(self, epoch_num=10):
+        row_number = self.interactions.shape[0]
         for epoch in range(epoch_num):
             print(f"Epoch: {epoch}")
             batches = self.genInteractions()
@@ -140,7 +141,7 @@ class NuralCollab:
 
             batch_number = 0
             for input_vec, rating in batches:
-                print(f"{batch_number}/500")
+                print(f"{batch_number*100/row_number}%")
                 rating = torch.from_numpy(np.array([rating]))
                 input_vec, rating = input_vec.to(device), rating.to(device)
 
@@ -167,6 +168,14 @@ class NuralCollab:
             user_latent_vec = self.user_latent_vecs[user_i]
             item_vec = self.item_vecs[item_i]
 
+            input_v = catVec(item_vec, user_latent_vec)
+
+            input_v = input_v.to(device)
+
+            prediction = self.model(input_v)
+
+        return prediction
+
 
 def main(load_mat=True):
     # get starting data
@@ -175,10 +184,11 @@ def main(load_mat=True):
         factoredMatrix = factoriseMatrix()
     else:
         factoredMatrix = load("data/temp/factoredMatrix.obj")
+
     user_latent_vecs = factoredMatrix.user_latent_v
     item_latent_vecs = factoredMatrix.item_latent_v
-    user_interactions = getCSV(ml_ratings)
-    item_data = ItemVec(None, None, None, None, load=True).clean_items
+    user_interactions = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
+    item_data, user_data = prepareData(load_stored_data=True)
 
     exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
 
@@ -187,6 +197,7 @@ def main(load_mat=True):
                      interactions=user_interactions)
 
     NC.train()
+    store(NC, "data/temp/MLP_10.obj")
 
 
 if __name__ == '__main__':

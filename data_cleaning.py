@@ -6,14 +6,14 @@ from collections import defaultdict
 import nltk
 from nltk.corpus import stopwords
 from sklearn import preprocessing
+from itertools import combinations
+from sklearn.feature_extraction.text import TfidfVectorizer
 from pandas import DataFrame
 from scipy import spatial
 import gensim
 import re
 import csv
 import pickle as pkl
-
-
 
 
 def updateNltkWords():
@@ -46,14 +46,24 @@ def load(path):
 
 
 class Parseplots:
-    def __init__(self, path):
+    def __init__(self, path, load=False):
         """
         :param path: path of ftp.fu-berlin.de/pub/misc/movies/database/frozendata/plot.list
         """
         self.path = path
         self.EOSection = "-------------------------------------------------------------------------------\n"
 
-        self.df = self.createDF()
+        if not load:
+            self.df = self.createDF()
+            self.save()
+        else:
+            self.df = self.load()
+
+    def save(self):
+        store(self.df, "data/temp/plots.pkl")
+
+    def load(self):
+        return load("data/temp/plots.pkl")
 
     def lineGen(self):
         with open(self.path, 'rb') as file:
@@ -194,7 +204,7 @@ class Doc2VecSimilarity:
 
 
 class ItemVec:
-    def __init__(self,  tags, tag_labels, genres,plots=None, load=False, tag_vectoriser=None, plot_vectoriser=None):
+    def __init__(self, tags, tag_labels, genres, plots, load=False, tag_vectoriser=None, plot_vectoriser=None):
         """
 
         :param plots: df of movie plots
@@ -221,9 +231,10 @@ class ItemVec:
             self.genres = genres
 
             # to create the modified DF
-            self.insertTagWords()
-            self.sperateGenres()
-            self.insertTagVector()
+            # self.genres_Tf_IFD()
+
+            self.insertTagsPlots()
+            self.insertMovieVector()
             self.save()
 
         else:
@@ -261,8 +272,9 @@ class ItemVec:
         for coll in [c for c in list(clean.axes[1].array) if "tag_vec" in c]:
             clean[coll] = self.MinMaxScaleColl(clean[coll])
 
-        clean.drop(["(nogenreslisted)", "genres", "title", "top_tags"], axis=1, inplace=True)
-        return clean.replace({np.NAN:0.0})
+        clean.index = clean["movieId"]
+        clean.drop(["compressed_title", "movie_string", "genres_x", "genres_y", "title", "top_tags", "plots", "movieId"], axis=1, inplace=True)
+        return clean.replace({np.NAN: 0.0})
 
     def cleanPlots(self):
         """
@@ -279,12 +291,12 @@ class ItemVec:
         self.save()
 
     def save(self):
-        #store(self.plots, "data/temp/plots.pkl")
+        # store(self.plots, "data/temp/plots.pkl")
         store(self.tags, "data/temp/tags.pkl")
         store(self.genres, "data/temp/genres.pkl")
 
     def load(self):
-        #self.plots = load("data/temp/plots.pkl")
+        # self.plots = load("data/temp/plots.pkl")
         self.tags = load("data/temp/tags.pkl")
         self.genres = load("data/temp/genres.pkl")
 
@@ -295,70 +307,73 @@ class ItemVec:
         if movietitle is not None:
             return list(self.genres.loc[self.genres['title'] == movietitle]["movieId"])[0]
 
-    def topTags(self, id, number=50):
-        "returns top tags of the specifies movie"
-        rec_n = list(
-            self.tags.loc[self.tags['movieId'] == id].sort_values(by='relevance', ascending=False, ignore_index=True)[
-                'tagId'][:number])
-        rec_w = []
-        for rn in rec_n:
-            rec_w.append(self.tag_lookup.loc[self.tag_lookup['tagId'] == rn]["tag"].values[0])
-        return rec_w
 
-    def insertTagWords(self):
+    def insertTagsPlots(self):
         """
         get top tags for each of the records and create a vector out of them
         :return:
         """
         self.genres["top_tags"] = np.zeros(self.genres.shape[0])
-        for index, rec in self.genres.iterrows():
-            id = rec["movieId"]
-            topTags = self.topTags(id, number=50)
-            tag_str = ""
 
-            for t in topTags:
-                tag_str += t
-                tag_str += " "
+        last = np.array([])
 
-            self.genres.loc[index, "top_tags"] = tag_str
+        def regulariseTitle(title):
+            return re.sub("[\(\[].*?[\)\]]", "", title).replace(" ", "").lower()
 
-            print(index, self.genres.shape[0])
+        self.genres["compressed_title"] = pd.Series(np.vectorize(regulariseTitle)(self.genres["title"]))
+        self.plots["compressed_title"] = pd.Series(np.vectorize(regulariseTitle)(self.plots["title"]))
+
+        def get_tag_str(id):
+            return " ".join(self.tags[self.tags["movieId"] == id]["tag"].values)
+
+        def get_plot_str(row):
+            title = row["compressed_title"]
+            return " ".join(self.plots[self.plots["compressed_title"] == title]["plot"].values)
+
+        self.genres["plots"] = self.genres.apply(lambda row: get_plot_str(row), axis=1)
+
+        v_get_tag_str = np.vectorize(get_tag_str)
+        self.genres["top_tags"] = v_get_tag_str(self.genres["movieId"])
+
         self.save()
 
-    def insertTagVector(self):
-        corpus = self.genres['top_tags'].values
+    def insertMovieVector(self):
+
+        def regulariseTitle(title):
+            return re.sub("[\(\[].*?[\)\]]", "", title).lower()
+
+        self.genres["movie_string"] = pd.Series(np.vectorize(regulariseTitle)(self.genres["title"])) + self.genres["top_tags"] + self.genres["plots"]
+        corpus = self.genres['movie_string'].values
 
         if self.tag_vectoriser is None:
             self.tag_vectoriser = Doc2VecSimilarity(corpus, vec_size=self.tv_len)
             store(self.tag_vectoriser, "data/temp/tag_vectorise")
 
         for i in range(self.tv_len):
-            self.genres[f"tag_vec_{i}"] = np.zeros(self.genres.shape[0])
+            self.genres[f"movie_str_vec_{i}"] = np.zeros(self.genres.shape[0])
 
         def getTagVec(row):
-            return pd.Series(self.tag_vectoriser.queryDoc2VecModel(row['top_tags']))
+            return pd.Series(self.tag_vectoriser.queryDoc2VecModel(row['movie_string']))
 
         vecs = self.genres.apply(lambda row: getTagVec(row), axis=1)
-        self.genres[[f"tag_vec_{i}" for i in range(self.tv_len)]] = vecs
+        self.genres[[f"movie_str_vec_{i}" for i in range(self.tv_len)]] = vecs
         self.save()
 
-    def sperateGenres(self):
+    def genres_Tf_IFD(self):
         """
         creates boolean coll for each genre
         """
         genres = "Action* Adventure* Animation* Children* Comedy* Crime* Documentary* Drama* Fantasy* Film-Noir* Horror* Musical* Mystery* Romance* Sci-Fi* Thriller* War* Western* (no genres listed)"
         genres = [g.replace(" ", "") for g in genres.split("*")]
+        genres_str = ' '.join(genres)
+        a = [c for i in range(1, 4) for c in combinations(genres_str.split(), r=i)]
 
-        for g in genres:
-            self.genres[g] = np.zeros(self.genres.shape[0])
+        tf = TfidfVectorizer(stop_words='english')
+        tfidf_matrix = tf.fit_transform(self.genres["genres"])
+        tf_idf_df = pd.DataFrame(tfidf_matrix.todense(), columns=tf.get_feature_names_out(), index=self.genres["title"])
+        tf_idf_df.reset_index(inplace=True)
 
-        def assighnG(row, g):
-            gs = row['genres'].split('|')
-            if g in gs:
-                return 1
-
-        for g in genres:
-            self.genres[g] = self.genres.apply(lambda row: assighnG(row, g), axis=1)
+        self.genres = pd.merge(self.genres, tf_idf_df, on="title")
 
 
 class UserVec:
@@ -397,31 +412,28 @@ class UserVec:
         return user_df
 
 
-def prepareData():
+def prepareData(load_stored_data=False):
     plotParts = "data/plots/IMDB/plot.list"
 
-    ml_tags_genome = "data/ml-25m/genome-scores.csv"
-    ml_tags_lookup = "data/ml-25m/genome-tags.csv"
-    ml_genres = "data/ml-25m/movies.csv"
-    ml_ratings = "data/ml-25m/ratings.csv"
+    ml_genres = "data/ml-latest-small/movies.csv"
+    ml_ratings = "data/ml-latest-small/ratings.csv"
+    ml_tags = "data/ml-latest-small/tags.csv"
 
     tag_vec = load("data/temp/tag_vectorise")
 
-    # plot_df = Parseplots(plotParts).df
-    ml_tags = getCSV(ml_tags_lookup)
 
-    load_stored_data = True
     if not load_stored_data:
-        # plotParts = getCSV(plotParts, sep="\t")
-        ml_tags_genome = getCSV(ml_tags_genome)
-        ml_genras = getCSV(ml_genres)
+        plotParts = Parseplots(plotParts, load=True).df
+        ml_genres = getCSV(ml_genres)
+        ml_tags = getCSV(ml_tags)
 
+        items = ItemVec(tags=ml_tags, tag_labels=ml_tags, genres=ml_genres,
+                        tag_vectoriser=None, plots=plotParts)
         users = UserVec(getCSV(ml_ratings))
-        items = ItemVec(tags=ml_tags_genome, tag_labels=ml_tags, genres=ml_genras,
-                        tag_vectoriser=tag_vec)
+
     else:
-        users = UserVec(getCSV(ml_ratings))
         items = ItemVec(None, None, ml_tags, None, load=True, tag_vectoriser=tag_vec)
+        users = UserVec(getCSV(ml_ratings))
 
     # ml_ratings = getCSV("data/ml-25m/ratings.csv")
 

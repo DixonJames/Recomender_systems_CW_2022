@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from data_cleaning import getCSV, load, UserVec, ItemVec, store
+from data_cleaning import getCSV, load, UserVec, ItemVec, store, prepareData
 
 
 class reduceSize:
@@ -64,18 +64,7 @@ class MatrixFact:
             self.ratings_df.loc[(self.ratings_df["movieId"] == i) & (self.ratings_df["userId"] == u)]["rating"].values[
                 0]
 
-    def predict(self, user_i, item_i):
-        user_i = int(user_i)
-        item_i = int(item_i)
 
-        b_u = self.user_bias[user_i]
-        b_i = self.item_bias[item_i]
-        b_glob = self.global_bias
-        mat_mul = self.user_latent_v[user_i].dot(self.item_latent_v[item_i].T)
-
-        prediction = b_u + b_i + b_glob + mat_mul
-
-        return prediction
 
     def regularisedSquaredError(self, prediction, true_predictions, user_i, item_i):
         b_u = self.user_bias[user_i]
@@ -144,22 +133,30 @@ class MatrixFact:
             avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
             print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
 
+    def predict(self, user_i, item_i):
+        user_i = int(user_i)
+        item_i = int(item_i)
+
+        b_u = self.user_bias[user_i]
+        b_i = self.item_bias[item_i]
+        b_glob = self.global_bias
+        mat_mul = self.user_latent_v[user_i].dot(self.item_latent_v[item_i].T)
+
+        prediction = b_u + b_i + b_glob + mat_mul
+
+        return prediction
+
 
 def factoriseMatrix():
     # after gone though pre-procesesing
     ml_ratings = "data/ml-25m/ratings.csv"
-    movie_data = load("data/temp/genres.pkl")
-
-    user_data = UserVec(getCSV(ml_ratings)).user_df
-    item_data = ItemVec(None, None, None, None, load=True).clean_items
-
     ratings = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
 
     mat = MatrixFact(ratings, iterations=10, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
                      verbose=True)
     mat.learnModelParams()
 
-    return mat, user_data, item_data
+    return mat
 
 
 if __name__ == '__main__':
