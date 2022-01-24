@@ -3,30 +3,10 @@ import pandas as pd
 from data_cleaning import getCSV, load, UserVec, ItemVec, store, prepareData
 
 
-class reduceSize:
-    def __init__(self, ratings, min_movie_raings=50, min_user_reviews=10):
-        self.whole_df = ratings
-        self.min_movie_raings = min_movie_raings
-        self.min_user_reviews = min_user_reviews
-
-        self.df_droped_users = self.userDrop(self.whole_df)
-        self.df_droped_movies = self.movieDrop(self.whole_df)
-
-        self.df_droped_movies_users = self.movieDrop(self.df_droped_users)
-
-    def userDrop(self, df):
-        count = df['userId'].value_counts()
-        invalid = list(count.loc[count < self.min_movie_raings].index)
-        return df.loc[df['userId'].isin(invalid)]
-
-    def movieDrop(self, df):
-        count = df['movieId'].value_counts()
-        invalid = list(count.loc[count < self.min_user_reviews].index)
-        return df.loc[df['userId'].isin(invalid)]
 
 
 class MatrixFact:
-    def __init__(self, ratings_df, iterations, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
+    def __init__(self, ratings_df, iterations, latent_vec_size=10, l4=0.02, gamma=0.005,
                  verbose=False):
         """
         :param ratings_df: padas dataframe containing the original user ratings
@@ -38,7 +18,7 @@ class MatrixFact:
         self.ratings_df = ratings_df
         self.latent_vec_size = latent_vec_size
         self.iterations = iterations
-        self.test_prop = test_proportion
+
         self.l4 = l4
         self.gamma = gamma
 
@@ -54,17 +34,14 @@ class MatrixFact:
         self.user_latent_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
         self.item_latent_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
 
-        self.user_additional_latent_v = np.random.normal(
-            size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
-        self.item_additional_latent_v = np.random.normal(
-            size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
+    def save(self):
+        # store(self.plots, "data/temp/plots.pkl")
+        store(self, "data/temp/MatrixFact_10.pkl")
 
     def originalRating(self, i, u):
         return \
             self.ratings_df.loc[(self.ratings_df["movieId"] == i) & (self.ratings_df["userId"] == u)]["rating"].values[
                 0]
-
-
 
     def regularisedSquaredError(self, prediction, true_predictions, user_i, item_i):
         b_u = self.user_bias[user_i]
@@ -75,8 +52,9 @@ class MatrixFact:
         return (true_predictions - prediction) ** 2 + self.l4 * (
                 b_u ** 2 + b_i ** 2 + np.linalg.norm(q_i) ** 2 + np.linalg.norm(p_u) ** 2)[0]
 
-    def allPredictions(self):
-        all = np.zeros((self.users_n, self.item_n))
+    def seenPredictions(self, ratings_df=None):
+        if ratings_df is None:
+            ratings_df = self.ratings_df
 
         def pred(row):
             user_i = np.where(self.user_n_to_index == row["userId"])[0]
@@ -91,7 +69,32 @@ class MatrixFact:
 
             return pd.Series(dct)
 
-        predictions = self.ratings_df.apply(lambda row: pred(row), axis=1)
+        predictions = ratings_df.apply(lambda row: pred(row), axis=1)
+        return predictions
+
+    def allPredictions(self, user_id):
+        """
+        predics all preddicrions for seen and unseen movies for a specific user
+        :param user_id:
+        :return:
+        """
+        movie_ids = pd.DataFrame(self.ratings_df["movieId"].unique())
+
+        all_preds = []
+
+        def pred(row):
+            user_i = np.where(self.user_n_to_index == user_id)[0]
+            item_i = np.where(self.movie_n_to_index == row[0])[0]
+            prediction = self.predict(user_i, item_i)
+
+            dct = {"userId": user_id,
+                   "itemId": row[0],
+                   "prediction": prediction}
+
+            return pd.Series(dct)
+
+        predictions = movie_ids.apply(lambda row: pred(row), axis=1)
+
         return predictions
 
     def SDE(self):
@@ -128,10 +131,12 @@ class MatrixFact:
         for train_iteration in range(self.iterations):
             print(f"{train_iteration}/{self.iterations}")
             self.SDE()
-            predicitons = self.allPredictions()
-            regularised_squared_error = sum(predicitons["reg_sqr_err"])
-            avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
-            print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
+            # roughly 15 sencods per epock
+
+            # predicitons = self.allPredictions()
+            # regularised_squared_error = sum(predicitons["reg_sqr_err"])
+            # avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
+            # print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
 
     def predict(self, user_i, item_i):
         user_i = int(user_i)
@@ -147,14 +152,21 @@ class MatrixFact:
         return prediction
 
 
-def factoriseMatrix():
+def factoriseMatrix(load_matrix=False, ratings=None):
     # after gone though pre-procesesing
-    ml_ratings = "data/ml-25m/ratings.csv"
-    ratings = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
+    if ratings is None:
+        ml_ratings = getCSV("data/ml-latest-small/ratings.csv")
+    else:
+        ml_ratings = ratings
 
-    mat = MatrixFact(ratings, iterations=10, latent_vec_size=10, test_proportion=0.2, l4=0.02, gamma=0.005,
-                     verbose=True)
-    mat.learnModelParams()
+
+    if not load_matrix:
+        mat = MatrixFact(ml_ratings, iterations=10, latent_vec_size=10, l4=0.02, gamma=0.005,
+                         verbose=True)
+        mat.learnModelParams()
+        # mat.save()
+    else:
+        mat = load("data/temp/MatrixFact_10.pkl")
 
     return mat
 

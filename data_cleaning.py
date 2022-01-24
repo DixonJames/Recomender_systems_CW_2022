@@ -44,6 +44,38 @@ def load(path):
     except:
         return None
 
+class reduceSize:
+    def __init__(self, items, users, min_movie_raings=50, min_user_reviews=10):
+        self.items, self.users = items, users
+        self.min_movie_raings = min_movie_raings
+        self.min_user_reviews = min_user_reviews
+
+
+    def invalidUsers(self, df):
+        count = df['userId'].value_counts()
+        invalid = list(count.loc[count < self.min_movie_raings].index)
+        return invalid
+
+    def invalidMovies(self, df):
+        count = df['movieId'].value_counts()
+        invalid = list(count.loc[count < self.min_user_reviews].index)
+        return invalid
+
+
+    def reduced(self):
+        invalid_movies = self.invalidMovies(self.users.ratings)
+        invalid_users = self.invalidUsers(self.users.ratings)
+
+        self.users.ratings = self.users.ratings[~self.users.ratings["userId"].isin(invalid_users)]
+        self.users.ratings = self.users.ratings[~self.users.ratings["movieId"].isin(invalid_movies)]
+
+        self.users.user_df = self.users.user_df[~self.users.user_df["userId"].isin(invalid_users)]
+
+        self.items.clean_items = self.items.clean_items[~self.items.clean_items.index.isin(invalid_movies)]
+        self.items.genres = self.items.genres[~self.items.genres["movieId"].isin(invalid_movies)]
+        self.items.tags = self.items.tags[~self.items.tags["movieId"].isin(invalid_movies)]
+
+        return self.users, self.items
 
 class Parseplots:
     def __init__(self, path, load=False):
@@ -412,7 +444,7 @@ class UserVec:
         return user_df
 
 
-def prepareData(load_stored_data=False):
+def prepareData(load_stored_data=False, reduce=True, min_movie_raings=30, min_user_reviews=100):
     plotParts = "data/plots/IMDB/plot.list"
 
     ml_genres = "data/ml-latest-small/movies.csv"
@@ -437,8 +469,11 @@ def prepareData(load_stored_data=False):
 
     # ml_ratings = getCSV("data/ml-25m/ratings.csv")
 
+    if reduce:
+        users, items = reduceSize(items, users, min_movie_raings=min_movie_raings, min_user_reviews=min_user_reviews).reduced()
+
     return items, users
 
 
 if __name__ == '__main__':
-    prepareData()
+    prepareData(load_stored_data=True)

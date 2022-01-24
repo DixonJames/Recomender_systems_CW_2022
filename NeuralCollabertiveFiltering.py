@@ -1,9 +1,10 @@
-from MatrixFactorisation import MatrixFact, factoriseMatrix, reduceSize
+from MatrixFactorisation import MatrixFact, factoriseMatrix
 from data_cleaning import store, prepareData, UserVec, ItemVec, getCSV
 import pickle as pkl
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device: {device}")
@@ -22,7 +23,7 @@ def load(path):
 
 
 def getExampleData(item_vecs, user_latent_vecs):
-    item_v = np.array(item_vecs.iloc[[0]])[0]
+    item_v = np.array(item_vecs.clean_items.iloc[[0]])[0]
     user_v = user_latent_vecs[0]
     return catVec(item_v, user_v)
 
@@ -42,7 +43,8 @@ class MLPBlock(nn.Module):
     def forward(self, x):
         return self.layer(x)
 
-class MLP(nn.Module):
+
+class MLP_network(nn.Module):
     def __init__(self, ex_input):
         super().__init__()
         self.example = ex_input
@@ -105,7 +107,11 @@ class NuralCollab:
                     user_i = np.where(self.user_n_to_index == row[1]["userId"])[0]
                     item_i = np.where(self.movie_n_to_index == row[1]["movieId"])[0]
 
-                    item_v = np.array(self.item_vecs.iloc[item_i])[0]
+                    try:
+                        item_v = np.array(self.item_vecs.clean_items.iloc[item_i])[0]
+                    except:
+                        pass
+
                     user_v = self.user_latent_vecs[user_i][0]
 
                     input_v = catVec(item_v, user_v)
@@ -141,7 +147,7 @@ class NuralCollab:
 
             batch_number = 0
             for input_vec, rating in batches:
-                print(f"{batch_number*100/row_number}%")
+                print(f"{batch_number * 100 / row_number}%")
                 rating = torch.from_numpy(np.array([rating]))
                 input_vec, rating = input_vec.to(device), rating.to(device)
 
@@ -160,13 +166,16 @@ class NuralCollab:
 
         # checkpointModel(self.model, f'score_model_{epoch}.pth')
 
-    def query(self, movieId, userId):
+    def predict(self, movieId, userId):
         with torch.no_grad():
             user_i = np.where(self.user_n_to_index == userId)[0]
             item_i = np.where(self.movie_n_to_index == movieId)[0]
 
-            user_latent_vec = self.user_latent_vecs[user_i]
-            item_vec = self.item_vecs[item_i]
+            try:
+                user_latent_vec = self.user_latent_vecs[user_i][0]
+            except:
+                pass
+            item_vec = self.item_vecs.clean_items.iloc[item_i].values[0]
 
             input_v = catVec(item_vec, user_latent_vec)
 
@@ -174,31 +183,77 @@ class NuralCollab:
 
             prediction = self.model(input_v)
 
-        return prediction
+        return prediction.numpy()[0]
+
+    def seenPredictions(self, ratings_df=None):
+        if ratings_df is None:
+            ratings_df = self.interactions
+
+        def pred(row):
+            user_i = np.where(self.user_n_to_index == row["userId"])[0]
+            item_i = np.where(self.movie_n_to_index == row["movieId"])[0]
+            prediction = self.predict(item_i, user_i)
+
+            dct = {"userId": row["userId"],
+                   "itemId": row["movieId"],
+                   "rating": row["rating"],
+                   "prediction": prediction}
+
+            return pd.Series(dct)
+
+        predictions = ratings_df.apply(lambda row: pred(row), axis=1)
+        return predictions
+
+    def allPredictions(self, user_id):
+        """
+                predics all preddicrions for seen and unseen movies for a specific user
+                :param user_id:
+                :return:
+                """
+        movie_ids = pd.DataFrame(self.interactions["movieId"].unique())
+
+        def pred(row):
+            user_i = user_id
+            item_i = row[0]
+            prediction = self.predict(item_i, user_i)
+
+            dct = {"userId": user_id,
+                   "itemId": row[0],
+                   "prediction": prediction}
+
+            return pd.Series(dct)
+
+        predictions = movie_ids.apply(lambda row: pred(row), axis=1)
+
+        return predictions
 
 
-def main(load_mat=True):
+def neauralCollaberativeModel(load_mat=True, load_model=True, ratings=None):
     # get starting data
-    ml_ratings = "data/ml-25m/ratings.csv"
-    if not load_mat:
-        factoredMatrix = factoriseMatrix()
+    if ratings is None:
+        ratings = "data/ml-latest-small/ratings.csv"
+
+    factoredMatrix = factoriseMatrix(load_matrix=load_mat, ratings=ratings)
+
+    if not load_model:
+        user_latent_vecs = factoredMatrix.user_latent_v
+        item_latent_vecs = factoredMatrix.item_latent_v
+        user_interactions = ratings
+
+        item_data, user_data = prepareData(load_stored_data=True)
+
+        exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
+        model = MLP_network(exampleData).to(device)
+        NC = NuralCollab(NN_model=model, user_latent_vecs=user_latent_vecs, item_vecs=item_data,
+                         interactions=user_interactions)
+
+        NC.train()
+        store(NC, "data/temp/MLP_10.obj")
     else:
-        factoredMatrix = load("data/temp/factoredMatrix.obj")
+        NC = load("data/temp/MLP_10.obj")
 
-    user_latent_vecs = factoredMatrix.user_latent_v
-    item_latent_vecs = factoredMatrix.item_latent_v
-    user_interactions = reduceSize(getCSV(ml_ratings), min_movie_raings=50, min_user_reviews=100).df_droped_movies_users
-    item_data, user_data = prepareData(load_stored_data=True)
-
-    exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
-
-    model = MLP(exampleData).to(device)
-    NC = NuralCollab(NN_model=model, user_latent_vecs=user_latent_vecs, item_vecs=item_data,
-                     interactions=user_interactions)
-
-    NC.train()
-    store(NC, "data/temp/MLP_10.obj")
+    return NC
 
 
 if __name__ == '__main__':
-    main()
+    neauralCollaberativeModel(load_mat=False)
