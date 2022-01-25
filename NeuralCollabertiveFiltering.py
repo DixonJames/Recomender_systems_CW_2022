@@ -10,7 +10,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device: {device}")
 
 # debug
-device = "cpu"
+#device = "cpu"
 
 
 def load(path):
@@ -38,24 +38,24 @@ class MLPBlock(nn.Module):
         self.in_d = in_d
         self.out_d = out_d
 
-        self.layer = nn.Sequential(nn.Linear(in_d, out_d), nn.ReLU())
+        self.device = device
+        self.layer = nn.Sequential(nn.Linear(in_d, out_d), nn.ReLU()).to(self.device)
+
 
     def forward(self, x):
         return self.layer(x)
 
 
 class MLP_network(nn.Module):
-    def __init__(self, ex_input):
+    def __init__(self, ex_input, min_score, max_score):
         super().__init__()
         self.example = ex_input
+        self.min_score = min_score
+        self.max_score = max_score
+
         self.input_dim = ex_input.shape
 
-        self.layer = nn.Sequential(nn.Flatten(),
-                                   MLPBlock(32, 16),
-                                   MLPBlock(32, 16),
-                                   MLPBlock(16, 8),
-                                   MLPBlock(8, 4),
-                                   nn.Linear(2, 1))
+        self.final_layer = nn.Sequential(nn.Linear(2, 1)).to(device)
 
     def block(self, in_dim, out_dim):
         return nn.Sequential(nn.Linear(in_dim, out_dim), nn.ReLU())
@@ -73,18 +73,21 @@ class MLP_network(nn.Module):
         r = MLPBlock(16, 8).forward(r)
         r = MLPBlock(8, 4).forward(r)
         r = MLPBlock(4, 2).forward(r)
-        r = MLPBlock(2, 1).forward(r)
+        r = self.final_layer.forward(r)
+        r = torch.sigmoid(r)
 
-        return r
+        output = r * (self.max_score - self.min_score + 1) + self.min_score - 0.5
+
+        return output
 
 
 class NuralCollab:
     def __init__(self, NN_model, user_latent_vecs, item_vecs, interactions):
-        self.model = NN_model
+        self.model = NN_model.to(device)
         self.user_latent_vecs = user_latent_vecs
         self.item_vecs = item_vecs
         self.interactions = interactions
-        self.learning_rate = 2e-4
+        self.learning_rate = 1e-3
 
         self.user_n_to_index = self.interactions["userId"].unique()
         self.movie_n_to_index = self.interactions["movieId"].unique()
@@ -141,13 +144,13 @@ class NuralCollab:
     def train(self, epoch_num=10):
         row_number = self.interactions.shape[0]
         for epoch in range(epoch_num):
-            print(f"Epoch: {epoch}")
+            print(f"Epoch: {epoch}/{epoch_num}")
             batches = self.genInteractions()
             loss_arr = np.zeros(0)
 
             batch_number = 0
             for input_vec, rating in batches:
-                print(f"{batch_number * 100 / row_number}%")
+                #print(f"{batch_number * 100 / row_number}%")
                 rating = torch.from_numpy(np.array([rating]))
                 input_vec, rating = input_vec.to(device), rating.to(device)
 
@@ -243,12 +246,12 @@ def neauralCollaberativeModel(load_mat=True, load_model=True, ratings=None):
         item_data, user_data = prepareData(load_stored_data=True)
 
         exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
-        model = MLP_network(exampleData).to(device)
+        model = MLP_network(exampleData, 1, 5).to(device)
         NC = NuralCollab(NN_model=model, user_latent_vecs=user_latent_vecs, item_vecs=item_data,
                          interactions=user_interactions)
 
-        NC.train()
-        store(NC, "data/temp/MLP_10.obj")
+        NC.train(epoch_num=100)
+        store(NC, "data/temp/MLP_100.obj")
     else:
         NC = load("data/temp/MLP_10.obj")
 

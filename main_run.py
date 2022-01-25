@@ -20,8 +20,6 @@ class User:
         self.user_df = whole_user_df.user_df[whole_user_df.user_df["userId"] == self.user_id]
         self.user_reviews = whole_user_df.ratings[whole_user_df.ratings["userId"] == self.user_id]
 
-        self.content_based = ContentCompare(movie_df, self)
-
         self.user_mean_score_diff = -whole_user_df.user_df["mean_score"].mean() + float(
             whole_user_df.user_df[whole_user_df.user_df["userId"] == self.user_id]["mean_score"])
 
@@ -74,9 +72,10 @@ class User:
         return user_vec_classes, user_weight_classes
 
     def contentBasedPrediction(self):
-        all_predicitons = self.content_based.queryUser(self.user_id, profile_vector_type="classed",
-                                                       distance_measure="cosine")
-        return all_predicitons
+        content_based = ContentCompare(self.movie_df, self)
+        all_predictions = content_based.queryUser(self.user_id, profile_vector_type="classed",
+                                                  distance_measure="cosine")
+        return all_predictions
 
     def matrixFactorPrediction(self):
         mat = factoriseMatrix(load=False, ratings=self.whole_user_df.ratings)
@@ -84,7 +83,7 @@ class User:
         return all_predictions
 
     def NCFPPrediction(self):
-        NCM = neauralCollaberativeModel(load_mat=True, load_model=True, ratings=self.whole_user_df.ratings)
+        NCM = neauralCollaberativeModel(load_mat=True, load_model=False, ratings=self.whole_user_df.ratings)
         all_predictions = NCM.allPredictions(self.user_id)
         return all_predictions
 

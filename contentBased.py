@@ -1,5 +1,5 @@
 from sklearn.metrics.pairwise import linear_kernel
-from data_cleaning import prepareData
+from data_cleaning import prepareData, DataSets
 from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import numpy as np
@@ -121,5 +121,4 @@ class ContentCompare:
 if __name__ == '__main__':
     items, users = prepareData(load_stored_data=True)
 
-    comp = ContentCompare(items, users)
-    comp.queryUser(1, profile_vector_type="classed", distance_measure="pearson")
+    set_split = DataSets(items, users, 5)

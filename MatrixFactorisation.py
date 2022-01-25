@@ -34,9 +34,12 @@ class MatrixFact:
         self.user_latent_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
         self.item_latent_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
 
-    def save(self):
+    def save(self, path=None):
         # store(self.plots, "data/temp/plots.pkl")
-        store(self, "data/temp/MatrixFact_10.pkl")
+        if path is None:
+            store(self, "data/temp/MatrixFact_10.pkl")
+        else:
+            store(self, path)
 
     def originalRating(self, i, u):
         return \
@@ -152,7 +155,7 @@ class MatrixFact:
         return prediction
 
 
-def factoriseMatrix(load_matrix=False, ratings=None):
+def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=10):
     # after gone though pre-procesesing
     if ratings is None:
         ml_ratings = getCSV("data/ml-latest-small/ratings.csv")
@@ -161,12 +164,15 @@ def factoriseMatrix(load_matrix=False, ratings=None):
 
 
     if not load_matrix:
-        mat = MatrixFact(ml_ratings, iterations=10, latent_vec_size=10, l4=0.02, gamma=0.005,
+        mat = MatrixFact(ml_ratings, iterations=iterations, latent_vec_size=10, l4=0.02, gamma=0.005,
                          verbose=True)
         mat.learnModelParams()
-        # mat.save()
+
     else:
         mat = load("data/temp/MatrixFact_10.pkl")
+
+    if save_path is not None:
+        mat.save(save_path)
 
     return mat
 

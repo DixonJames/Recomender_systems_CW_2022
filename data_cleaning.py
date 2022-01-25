@@ -14,6 +14,7 @@ import gensim
 import re
 import csv
 import pickle as pkl
+from random import shuffle
 
 
 def updateNltkWords():
@@ -44,12 +45,12 @@ def load(path):
     except:
         return None
 
+
 class reduceSize:
     def __init__(self, items, users, min_movie_raings=50, min_user_reviews=10):
         self.items, self.users = items, users
         self.min_movie_raings = min_movie_raings
         self.min_user_reviews = min_user_reviews
-
 
     def invalidUsers(self, df):
         count = df['userId'].value_counts()
@@ -60,7 +61,6 @@ class reduceSize:
         count = df['movieId'].value_counts()
         invalid = list(count.loc[count < self.min_user_reviews].index)
         return invalid
-
 
     def reduced(self):
         invalid_movies = self.invalidMovies(self.users.ratings)
@@ -76,6 +76,7 @@ class reduceSize:
         self.items.tags = self.items.tags[~self.items.tags["movieId"].isin(invalid_movies)]
 
         return self.users, self.items
+
 
 class Parseplots:
     def __init__(self, path, load=False):
@@ -305,7 +306,9 @@ class ItemVec:
             clean[coll] = self.MinMaxScaleColl(clean[coll])
 
         clean.index = clean["movieId"]
-        clean.drop(["compressed_title", "movie_string", "genres_x", "genres_y", "title", "top_tags", "plots", "movieId"], axis=1, inplace=True)
+        clean.drop(
+            ["compressed_title", "movie_string", "genres_x", "genres_y", "title", "top_tags", "plots", "movieId"],
+            axis=1, inplace=True)
         return clean.replace({np.NAN: 0.0})
 
     def cleanPlots(self):
@@ -338,7 +341,6 @@ class ItemVec:
             return list(self.genres.loc[self.genres['movieId'] == id]["title"])[0]
         if movietitle is not None:
             return list(self.genres.loc[self.genres['title'] == movietitle]["movieId"])[0]
-
 
     def insertTagsPlots(self):
         """
@@ -374,7 +376,8 @@ class ItemVec:
         def regulariseTitle(title):
             return re.sub("[\(\[].*?[\)\]]", "", title).lower()
 
-        self.genres["movie_string"] = pd.Series(np.vectorize(regulariseTitle)(self.genres["title"])) + self.genres["top_tags"] + self.genres["plots"]
+        self.genres["movie_string"] = pd.Series(np.vectorize(regulariseTitle)(self.genres["title"])) + self.genres[
+            "top_tags"] + self.genres["plots"]
         corpus = self.genres['movie_string'].values
 
         if self.tag_vectoriser is None:
@@ -453,7 +456,6 @@ def prepareData(load_stored_data=False, reduce=True, min_movie_raings=30, min_us
 
     tag_vec = load("data/temp/tag_vectorise")
 
-
     if not load_stored_data:
         plotParts = Parseplots(plotParts, load=True).df
         ml_genres = getCSV(ml_genres)
@@ -470,10 +472,92 @@ def prepareData(load_stored_data=False, reduce=True, min_movie_raings=30, min_us
     # ml_ratings = getCSV("data/ml-25m/ratings.csv")
 
     if reduce:
-        users, items = reduceSize(items, users, min_movie_raings=min_movie_raings, min_user_reviews=min_user_reviews).reduced()
+        users, items = reduceSize(items, users, min_movie_raings=min_movie_raings,
+                                  min_user_reviews=min_user_reviews).reduced()
 
     return items, users
 
 
+class DataSets:
+    """
+    training and testing split on each user
+    """
+
+    def __init__(self, items, users, group_number):
+        self.items = items
+        self.users = users
+        self.group_number = group_number
+
+        self.movie_in_group_check = self.createMovieChecklist()
+        self.ratingsGroups = self.createRatingsGroups()
+
+        self.reballenceSets()
+
+    def createMovieChecklist(self):
+        base_df = pd.DataFrame(data=self.users.ratings["movieId"].unique()).copy()
+        overall_df = pd.DataFrame(data=self.users.ratings["movieId"].unique()).copy()
+        for group_n in range(self.group_number):
+            overall_df[f"group_{group_n}"] = pd.Series([0 for _ in range(base_df.shape[0])])
+        return overall_df.rename({0: "movieId"}, axis='columns')
+
+    def splitUser(self, ratings):
+        indexes = list(ratings.index)
+        shuffle(indexes)
+        groups = [ratings[ratings.index.isin(list(ratings.index)[i::self.group_number])] for i in
+                  range(self.group_number)]
+        shuffle(groups)
+        return groups
+
+    def createRatingsGroups(self):
+        ratingsgroups = [pd.DataFrame(columns=["userId", "movieId", "rating", "timestamp"]) for _ in
+                         range(self.group_number)]
+        for user_index in self.users.ratings["userId"].unique():
+            all_user_ratings = self.users.ratings[self.users.ratings["userId"] == user_index]
+            user_index_groups = self.splitUser(all_user_ratings)
+
+            for i in range(len(ratingsgroups)):
+                ratingsgroups[i] = ratingsgroups[i].append(user_index_groups[i])
+
+        return ratingsgroups
+
+    def gen_movie_ballance(self, groups):
+        for group_i in range(len(groups)):
+            group = self.ratingsGroups[group_i]
+            counts = group["movieId"].value_counts().reset_index()
+            counts = counts.astype('int')
+            counts = counts.rename({"index": "movieId", "movieId": f"group_{group_i}"}, axis='columns')
+
+
+            for count_record in counts.iterrows():
+                self.movie_in_group_check.loc[
+                    self.movie_in_group_check["movieId"] == count_record[1]["movieId"], f"group_{group_i}"] = int(
+                    count_record[1][f"group_{group_i}"])
+
+        for count_record in self.movie_in_group_check.iterrows():
+            for c_i in range(len(self.ratingsGroups)):
+                if count_record[1][f"group_{c_i}"] == 0:
+                    yield count_record, c_i
+
+    def reballenceSets(self):
+        for movieId, group_num in self.gen_movie_ballance(self.ratingsGroups):
+            #this is fiiiine
+            self.createRatingsGroups()
+            break
+
+    def genCrossFoldGroups(self):
+        for group_i in range(self.group_number):
+            test = self.ratingsGroups[group_i]
+            train = pd.concat([self.ratingsGroups[i] for i in range(self.group_number)if i != group_i])
+            yield test, train
+
+
+
+
+
+
 if __name__ == '__main__':
-    prepareData(load_stored_data=True)
+    items, users = prepareData(load_stored_data=True)
+
+    set_split = DataSets(items, users, 5)
+    for test, train in set_split.genCrossFoldGroups():
+        print(test, train)
