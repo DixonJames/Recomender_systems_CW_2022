@@ -1,3 +1,5 @@
+import random
+from tabulate import tabulate
 import sys
 
 from sklearn.metrics.pairwise import linear_kernel
@@ -13,7 +15,10 @@ from data_cleaning import load
 from MatrixFactorisation import factoriseMatrix, MatrixFact
 from NeuralCollabertiveFiltering import neauralCollaberativeModel
 
+MF_model_path = "data/temp/main_use/group_4.matrixFact.obj"
+NCM_model_path = "data/temp/main_use/group_4.NCM.obj"
 
+todays_date = datetime(2022, 1, 30)
 
 
 class User:
@@ -104,11 +109,14 @@ class User:
 
 
 class RecommenderSystem:
-    def __init__(self):
+    def __init__(self, MF_model_path, NCM_model_path):
         self.items, self.users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100,
                                              min_movie_raings=50)
+        self.MF_model_path = MF_model_path
+        self.NCM_model_path = NCM_model_path
 
         self.current_user = None
+        self.current_user_id = None
 
     def startUp(self):
         """
@@ -119,7 +127,6 @@ class RecommenderSystem:
         """
         print("======== Welcome ==========")
         self.selectUser()
-        self.mainMenue()
 
     def mainMenue(self):
         print("===========================")
@@ -131,14 +138,14 @@ class RecommenderSystem:
         print("3)   crete new rating")
         print("4)   quit session")
 
-        option = self.IOResponse("Enter selection", [1, 2, 3, 4])
-        if option == 1:
+        option = self.IOResponse("Enter selection", ["1", "2", "3", "4"])
+        if option == "1":
             self.selectUser()
-        elif option == 2:
+        elif option == "2":
             self.generateRecomendations()
-        elif option == 3:
+        elif option == "3":
             self.createRating()
-        elif option == 4:
+        elif option == "4":
             sys.exit()
 
     def IOResponse(self, message, options=None):
@@ -153,23 +160,33 @@ class RecommenderSystem:
             response = input(f"{message}:")
 
         print()
-        return response
+        return response.upper()
 
-    def createRating(self):
+    def createRating(self, return_menue=True):
         movieId = "N"
-        i = 0
-        while movieId != "N":
-            disp_movies = self.items.genres["movieId"].unique()[:5 + i]
-            print(disp_movies)
+        i = 1
+        while movieId == "N":
+            disp_movies = self.items.genres["movieId"].unique()[5 * (i-1):5 * i]
+            output_df = self.items.genres[self.items.genres["movieId"].isin(disp_movies)][["movieId","title"]]
+            print(tabulate(output_df, headers='keys', tablefmt='psql', showindex=False))
+
             print("enter 'N' for next set of movies ")
-            movieId = self.IOResponse("please select existing user ID", disp_movies.append("N"))
+            disp_movies = list(disp_movies)
+            disp_movies.extend(["N", "n"])
+            movieId = self.IOResponse("please enter a Movie ID", disp_movies)
             i += 1
 
         # create rating
         rating = self.IOResponse("please enter a movie rating", [1, 2, 3, 4, 5])
-        timestamp = datetime.datetime(2022, 30, 1).timestamp()
+        timestamp = todays_date.timestamp()
 
-        self.users.ratings.append({"userId": self.current_user.user_id})
+        self.users.ratings = self.users.ratings.append(
+            {"userId": self.current_user_id, "movieId": movieId, "rating": rating, "timestamp": timestamp},
+            ignore_index=True
+            )
+
+        if return_menue:
+            self.mainMenue()
 
     def warmUpRatings(self):
         """
@@ -178,7 +195,9 @@ class RecommenderSystem:
         """
         print("===== Rating 5 movies =====")
         for i in range(5):
-            self.createRating()
+            self.createRating(return_menue=False)
+
+        self.mainMenue()
 
     def createNewUser(self):
         """
@@ -186,6 +205,19 @@ class RecommenderSystem:
         returns new users ID
         """
         new_id = max(self.users.user_df["userId"].unique()) + 1
+        self.current_user_id = new_id
+        self.warmUpRatings()
+        mean_score = self.users.ratings[self.users.ratings["userId"] == self.current_user_id]["rating"].mean()
+        review_num = self.users.ratings[self.users.ratings["userId"] == self.current_user_id].shape[0] / max(
+            self.users.ratings["userId"].value_counts())
+
+        reviewed_movies = self.users.ratings[self.users.ratings["userId"] == 1]["movieId"].values
+        for movieId in reviewed_movies:
+            self.users.reviews.loc[self.users.reviews.index == movieId, 0] += 1
+
+        self.users.user_df.append(
+            {"userId": new_id, "mean_score": mean_score, "review_num": review_num, "age": random.uniform(0.1, 1.0),
+             "country": random.uniform(0.1, 1.0)})
 
     def selectUser(self):
         """
@@ -203,17 +235,22 @@ class RecommenderSystem:
             selected = False
             i = 1
             while not selected:
-                disp_users = list(self.users.user_df["userId"].unique()[5*(i-1):5 * i])
+                disp_users = list(self.users.user_df["userId"].unique()[5 * (i - 1):5 * i])
                 print("enter 'next' for next set of user IDs")
                 disp_users.append("next")
                 userId = self.IOResponse("please select existing user ID", disp_users)
+
                 if userId == "next":
                     i += 1
                 else:
                     selected = True
         userId = int(userId)
 
-        self.current_user = User(whole_user_df=self.users, movie_df=self.items, user_id=userId)
+        self.current_user_id = userId
+        self.current_user = User(whole_user_df=self.users, movie_df=self.items, user_id=userId,
+                                 MF_model=self.MF_model_path, NCF_model=self.NCM_model_path)
+
+        self.mainMenue()
 
     def generateRecomendations(self):
         """
@@ -221,11 +258,22 @@ class RecommenderSystem:
         churns out as many responses as required
         :return:
         """
-        pass
+
+        print()
+        print("===== CREATING RECOMMENDATIONS =====")
+        df_selector = pd.DataFrame(columns=["Number", "System"])
+        df_selector = df_selector.append({"Number":1, "System":"Nural Collaborative Filtering"}, ignore_index=True)
+        df_selector = df_selector.append({"Number":2, "System": "Matrix factorisation & Content based hybrid"}, ignore_index=True)
+        print(tabulate(df_selector, headers='keys', tablefmt='psql', showindex=False))
+
+        self.IOResponse("Select desired recommender system", ["1", "2"])
+
+        self.mainMenue()
 
 
 if __name__ == '__main__':
     # items, users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
     # test_u = User(whole_user_df=users, movie_df=items, user_id=1)
-    rs = RecommenderSystem()
+    rs = RecommenderSystem(MF_model_path=MF_model_path, NCM_model_path=NCM_model_path)
+    #rs.createNewUser()
     rs.startUp()
