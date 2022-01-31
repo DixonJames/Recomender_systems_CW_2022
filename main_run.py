@@ -166,8 +166,8 @@ class RecommenderSystem:
         movieId = "N"
         i = 1
         while movieId == "N":
-            disp_movies = self.items.genres["movieId"].unique()[5 * (i-1):5 * i]
-            output_df = self.items.genres[self.items.genres["movieId"].isin(disp_movies)][["movieId","title"]]
+            disp_movies = self.items.genres["movieId"].unique()[5 * (i - 1):5 * i]
+            output_df = self.items.genres[self.items.genres["movieId"].isin(disp_movies)][["movieId", "title"]]
             print(tabulate(output_df, headers='keys', tablefmt='psql', showindex=False))
 
             print("enter 'N' for next set of movies ")
@@ -183,7 +183,7 @@ class RecommenderSystem:
         self.users.ratings = self.users.ratings.append(
             {"userId": self.current_user_id, "movieId": movieId, "rating": rating, "timestamp": timestamp},
             ignore_index=True
-            )
+        )
 
         if return_menue:
             self.mainMenue()
@@ -262,8 +262,9 @@ class RecommenderSystem:
         print()
         print("===== CREATING RECOMMENDATIONS =====")
         df_selector = pd.DataFrame(columns=["Number", "System"])
-        df_selector = df_selector.append({"Number":1, "System":"Nural Collaborative Filtering"}, ignore_index=True)
-        df_selector = df_selector.append({"Number":2, "System": "Matrix factorisation & Content based hybrid"}, ignore_index=True)
+        df_selector = df_selector.append({"Number": 1, "System": "Nural Collaborative Filtering"}, ignore_index=True)
+        df_selector = df_selector.append({"Number": 2, "System": "Matrix factorisation & Content based hybrid"},
+                                         ignore_index=True)
         print(tabulate(df_selector, headers='keys', tablefmt='psql', showindex=False))
 
         self.IOResponse("Select desired recommender system", ["1", "2"])
@@ -275,5 +276,5 @@ if __name__ == '__main__':
     # items, users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
     # test_u = User(whole_user_df=users, movie_df=items, user_id=1)
     rs = RecommenderSystem(MF_model_path=MF_model_path, NCM_model_path=NCM_model_path)
-    #rs.createNewUser()
+    # rs.createNewUser()
     rs.startUp()

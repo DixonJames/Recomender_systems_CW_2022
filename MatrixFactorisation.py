@@ -1,13 +1,13 @@
 import numpy as np
 import pandas as pd
-from data_cleaning import getCSV, load, UserVec, ItemVec, store, prepareData
+from data_cleaning import getCSV, load, UserVec, ItemVec, store, prepareData, plot
 
 
 
 
 class MatrixFact:
     def __init__(self, ratings_df, iterations, latent_vec_size=10, l4=0.02, gamma=0.005,
-                 verbose=False):
+                 verbose=False, train_test_split=False):
         """
         :param ratings_df: padas dataframe containing the original user ratings
         :param iterations: number of iterations to carry on the SGD for
@@ -15,7 +15,13 @@ class MatrixFact:
         :param gamma: SGD constant for size of incrimental update
         """
         self.verbose = verbose
+
         self.ratings_df = ratings_df
+        if train_test_split:
+            self.train_test_sets = load("data/temp/experiments/split_sets.DataSets.obj")
+        else:
+            self.train_test_sets = None
+
         self.latent_vec_size = latent_vec_size
         self.iterations = iterations
 
@@ -75,13 +81,18 @@ class MatrixFact:
         predictions = ratings_df.apply(lambda row: pred(row), axis=1)
         return predictions
 
-    def allPredictions(self, user_id):
+    def allPredictions(self, user_id=None, alternate_df=None):
         """
         predics all preddicrions for seen and unseen movies for a specific user
         :param user_id:
         :return:
         """
-        movie_ids = pd.DataFrame(self.ratings_df["movieId"].unique())
+        if alternate_df is None:
+            ratings_df = self.ratings_df
+        else:
+            ratings_df = alternate_df
+
+        movie_ids = pd.DataFrame(ratings_df["movieId"].unique())
 
         all_preds = []
 
@@ -100,9 +111,14 @@ class MatrixFact:
 
         return predictions
 
-    def SDE(self):
+    def SDE(self, alternate_df=None):
+        if alternate_df is None:
+            rating_df = self.ratings_df
+        else:
+            rating_df = alternate_df
+
         row_i = 1
-        for _, row in self.ratings_df.iterrows():
+        for _, row in rating_df.iterrows():
             if self.verbose:
                 # print(f"{int(row_i * 100 / self.ratings_df.shape[0])}%")
                 row_i += 1
@@ -130,16 +146,31 @@ class MatrixFact:
         prediction = mat_mul + np.mean(self.user_latent_v.dot(self.user_additional_latent_v.T))
         return prediction
 
-    def learnModelParams(self, side_info=False):
+    def learnModelParams(self):
+        points = []
+        train_test_flag = False
+        if self.train_test_sets is not None:
+            train_test_flag = True
+            test, train = next(self.train_test_sets.genCrossFoldGroups())
+
         for train_iteration in range(self.iterations):
             print(f"{train_iteration}/{self.iterations}")
-            self.SDE()
-            # roughly 15 sencods per epock
 
-            # predicitons = self.allPredictions()
-            # regularised_squared_error = sum(predicitons["reg_sqr_err"])
-            # avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
-            # print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
+            if train_test_flag:
+                self.SDE(alternate_df=train)
+                # roughly 15 sencods per epock
+                predicitons = self.seenPredictions(ratings_df=test)
+            else:
+                self.SDE()
+
+            if train_test_flag:
+
+                regularised_squared_error = sum(predicitons["reg_sqr_err"])
+                avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
+                print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
+                points.append((train_iteration, avg_regularised_squared_error))
+                #plot(points)
+        pass
 
     def predict(self, user_i, item_i):
         user_i = int(user_i)
@@ -155,21 +186,22 @@ class MatrixFact:
         return prediction
 
 
-def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=10):
+
+
+def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=32, train_test_split=False):
     # after gone though pre-procesesing
     if ratings is None:
         ml_ratings = getCSV("data/ml-latest-small/ratings.csv")
     else:
         ml_ratings = ratings
 
-
     if not load_matrix:
         mat = MatrixFact(ml_ratings, iterations=iterations, latent_vec_size=10, l4=0.02, gamma=0.005,
-                         verbose=True)
+                         verbose=True, train_test_split=train_test_split)
         mat.learnModelParams()
 
     else:
-        mat = load("data/temp/MatrixFact_10.pkl")
+        mat = load("data/temp/MatrixFact_30_OPT.pkl")
 
     if save_path is not None:
         mat.save(save_path)
@@ -178,4 +210,5 @@ def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=
 
 
 if __name__ == '__main__':
-    factoriseMatrix()
+    #most genral number of iterations is 30
+    factoriseMatrix(train_test_split=True, iterations=30)
