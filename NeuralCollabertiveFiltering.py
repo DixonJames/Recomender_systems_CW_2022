@@ -11,6 +11,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device: {device}")
 
 
+all_plts = []
+
 # debug
 # device = "cpu"
 
@@ -34,6 +36,20 @@ def catVec(item_v, user_v):
     return torch.cat([torch.from_numpy(item_v).to(device), torch.from_numpy(user_v).to(device)])
 
 
+def plotEpockGraph():
+    res = load("data/temp/midlayer_cahgne_all_plts.obj")
+    all_series = []
+    series_names = []
+    layers = 1
+    for series in res:
+
+        if layers % 10 == 0:
+            all_series.append(series['ABSE'])
+            series_names.append(f"ABSE {layers / 10} NN layers")
+        layers += 1
+    plot(all_series, series_names)
+
+
 class MLPBlock(nn.Module):
     def __init__(self, in_d, out_d):
         super().__init__()
@@ -48,8 +64,9 @@ class MLPBlock(nn.Module):
 
 
 class MLP_network(nn.Module):
-    def __init__(self, ex_input, min_score, max_score):
+    def __init__(self, ex_input, min_score, max_score, midlayers=4):
         super().__init__()
+        self.midlayers = midlayers
         self.example = ex_input
         self.min_score = min_score
         self.max_score = max_score
@@ -67,13 +84,31 @@ class MLP_network(nn.Module):
             r = self.block(self.pows[-p_i], self.pows[-(p_i + 1)], r)
         return r
 
+    def layerChooser(self):
+        all_layers = [32, 16, 8, 4, 2]
+        if self.midlayers == 4:
+            return all_layers
+
+        if self.midlayers == 3:
+            return [32, 16, 4, 2]
+
+        if self.midlayers == 2:
+            return [32, 4, 2]
+
+        if self.midlayers == 1:
+            return [32, 2]
+
     def forward(self, x):
         r = x.view(-1).float()
+
+        all_layers = [32, 16, 8, 4, 2]
+
         r = MLPBlock(self.input_dim[0], 32).forward(r)
-        r = MLPBlock(32, 16).forward(r)
-        r = MLPBlock(16, 8).forward(r)
-        r = MLPBlock(8, 4).forward(r)
-        r = MLPBlock(4, 2).forward(r)
+
+        midlayer_dims = self.layerChooser()
+        for i in range(len(midlayer_dims)-1):
+            r = MLPBlock(midlayer_dims[i], midlayer_dims[i+1]).forward(r)
+
         r = self.final_layer.forward(r)
         r = torch.sigmoid(r)
 
@@ -83,9 +118,9 @@ class MLP_network(nn.Module):
 
 
 class NuralCollab:
-    def __init__(self, NN_model, user_latent_vecs, item_vecs, interactions, train_test_split=None):
+    def __init__(self, user_latent_vecs, item_vecs, interactions, train_test_split=None, model_midlayers=4):
         exampleData = getExampleData(item_vecs=item_vecs, user_latent_vecs=user_latent_vecs)
-        self.model = MLP_network(exampleData, 1, 5).to(device)
+        self.model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
 
         self.user_latent_vecs = user_latent_vecs
         self.item_vecs = item_vecs
@@ -101,8 +136,8 @@ class NuralCollab:
         self.user_n_to_index = self.interactions["userId"].unique()
         self.movie_n_to_index = self.interactions["movieId"].unique()
 
-        # self.betas = (0.5, 0.999)
-        self.opt = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.betas = (0.5, 0.999)
+        self.opt = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, betas=self.betas)
 
     def extractbatchinfo(self, batch):
         input_vs = []
@@ -110,11 +145,14 @@ class NuralCollab:
             user_i = np.where(self.user_n_to_index == row[1]["userId"])[0]
             item_i = np.where(self.movie_n_to_index == row[1]["movieId"])[0]
 
-            item_v = np.array(self.item_vecs.clean_items.iloc[item_i])[0]
-            user_v = self.user_latent_vecs[user_i][0]
-            input_v = catVec(item_v, user_v)
+            try:
+                item_v = np.array(self.item_vecs.clean_items.iloc[item_i])[0]
+                user_v = self.user_latent_vecs[user_i][0]
+                input_v = catVec(item_v, user_v)
 
-            input_vs.append(input_v.to(device))
+                input_vs.append(input_v.to(device))
+            except:
+                continue
 
         ratings = [torch.tensor([i]).to(device) for i in batch["rating"].values]
 
@@ -175,7 +213,6 @@ class NuralCollab:
 
             loss_arr = np.zeros(0)
 
-            batch_number = 0
             for input_vecs, ratings in batches:
                 # print(f"{batch_number * 100 / row_number}%")
                 loss = []
@@ -188,8 +225,6 @@ class NuralCollab:
                     loss.append(self.lossFunc(prediction, rating))
 
                     # self.plot(epoch, batch_number, loss_arr, x_real)
-
-                    batch_number += 1
 
                 loss = torch.mean(torch.stack(loss))
                 self.opt.zero_grad()
@@ -205,8 +240,12 @@ class NuralCollab:
                 print(f"RMSE:{regularised_squared_error}, ABS_err:{mean_abs_error}")
                 RMSE_points.append((epoch, regularised_squared_error))
                 ABSE_points.append((epoch, mean_abs_error))
-                if epoch % 10 == 0:
-                    plot([RMSE_points, ABSE_points], ["RMSE", "ABS_Error"])
+
+                #if epoch % 10 == 0:
+                #plot(point_series=[RMSE_points, ABSE_points], names=["RMSE", "ABS_Error"])
+                tot_points = {"RMSE":RMSE_points, "ABSE":ABSE_points}
+                all_plts.append(tot_points)
+
 
         pass
         # checkpointModel(self.model, f'score_model_{epoch}.pth')
@@ -279,7 +318,7 @@ class NuralCollab:
         return predictions
 
 
-def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True):
+def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4):
     # get starting data
     item_data, user_data = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
 
@@ -291,11 +330,11 @@ def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True):
     if not load_model:
         user_latent_vecs = factoredMatrix.user_latent_v
         exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
-        model = MLP_network(exampleData, 1, 5).to(device)
+        #model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
 
-        NC = NuralCollab(NN_model=model, user_latent_vecs=user_latent_vecs, item_vecs=item_data,
-                         interactions=user_data.ratings, train_test_split=True)
-        NC.train(epoch_num=100)
+        NC = NuralCollab(user_latent_vecs=user_latent_vecs, item_vecs=item_data,
+                         interactions=user_data.ratings, train_test_split=True, model_midlayers=model_midlayers)
+        NC.train(epoch_num=epoch_num)
 
         store(NC, "data/temp/MLP_100.obj")
     else:
@@ -303,7 +342,10 @@ def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True):
 
     return NC
 
-
 if __name__ == '__main__':
     # best number of epocks is 3
-    neauralCollaberativeModel(load_mat=True, load_model=False)
+    # plot(point_series=[[(1,2), (3,4)], [(2,2), (3,5), (1,6)]], names=["RMSE", "ABS_Error"])
+
+
+    neauralCollaberativeModel(load_mat=True, load_model=False, model_midlayers=3, epoch_num=3)
+    store(all_plts, "data/temp/midlayer_cahgne_all_plts.obj")

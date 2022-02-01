@@ -18,12 +18,12 @@ from random import shuffle
 import matplotlib.pyplot as plt
 
 
-def plot(self, point_series, names, logScale=False):
+def plot(point_series, names, logScale=False):
     from math import log
     for points, name in zip(point_series, names):
         if logScale:
             points = [(x, log(y)) for x, y in points]
-        plt.scatter(*zip(*points), label=name)
+        plt.plot(*zip(*points), '-o', label=name)
     plt.xlabel('Data Train Iteration')
     plt.ylabel('Error Size')
     plt.legend()
