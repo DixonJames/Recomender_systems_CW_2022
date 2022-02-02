@@ -14,11 +14,12 @@ from contentBased import ContentCompare
 from data_cleaning import load
 from MatrixFactorisation import factoriseMatrix, MatrixFact
 from NeuralCollabertiveFiltering import neauralCollaberativeModel
+from hybrid_rs import Mf_Collaberative_hybrid
 
 MF_model_path = "data/temp/main_use/group_4.matrixFact.obj"
 NCM_model_path = "data/temp/main_use/group_4.NCM.obj"
 
-todays_date = datetime(2022, 1, 30)
+today_date = datetime(2022, 1, 30)
 
 
 class User:
@@ -100,12 +101,37 @@ class User:
         all_predictions = self.MF_model.allPredictions(self.user_id)
         return all_predictions
 
+    def hybridPrediction(self, CB_weighting=0.5):
+
+        hybrid_model = Mf_Collaberative_hybrid(CB_pred=self.contentBasedPrediction(), MF_pred=self.matrixFactorPrediction(), reviews=self.user_reviews, CB_weighting=CB_weighting)
+        all_predictions = hybrid_model.allPredictions()
+
+        return all_predictions
+
     def NCFPPrediction(self):
         if self.NCF_model is None:
             self.NCF_model = neauralCollaberativeModel(load_model=False)
 
         all_predictions = self.NCF_model.allPredictions(self.user_id)
         return all_predictions
+
+    def hybrid_recommendations(self, number_recs=30, CB_weighting=0.5):
+
+        hybrid_model = Mf_Collaberative_hybrid(CB_pred=self.contentBasedPrediction(),
+                                               MF_pred=self.matrixFactorPrediction(), reviews=self.user_reviews,
+                                               CB_weighting=CB_weighting)
+        all_recommendations = (hybrid_model.rankCandidates(number_recs=number_recs))["itemId"].values
+
+        return all_recommendations
+
+    def NCF_recommendations(self, number_recs=30):
+        if self.NCF_model is None:
+            self.NCF_model = neauralCollaberativeModel(load_model=False)
+
+        all_recommendations = self.NCF_model.allPredictions(self.user_id)
+        all_recommendations.sort_values(by="prediction_NCF", ascending=False)
+
+        return (all_recommendations.head(number_recs))["itemId"].values.astype(int)
 
 
 class RecommenderSystem:
@@ -178,7 +204,7 @@ class RecommenderSystem:
 
         # create rating
         rating = self.IOResponse("please enter a movie rating", [1, 2, 3, 4, 5])
-        timestamp = todays_date.timestamp()
+        timestamp = today_date.timestamp()
 
         self.users.ratings = self.users.ratings.append(
             {"userId": self.current_user_id, "movieId": movieId, "rating": rating, "timestamp": timestamp},

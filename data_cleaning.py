@@ -32,8 +32,8 @@ def plot(point_series, names, logScale=False):
 def updateNltkWords():
     try:
         print("downloading common wordlisml_tags_lookupts")
-        nltk.download('stopwords')
-        nltk.download('punkt')
+        nltk.download('stopwords', quiet=True)
+        nltk.download('punkt', quiet=True)
     except:
         print("couldn't download latest lists")
 
