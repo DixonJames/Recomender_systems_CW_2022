@@ -6,14 +6,18 @@ import numpy as np
 from scipy.stats.stats import pearsonr
 
 
-
 class ContentCompare:
-    def __init__(self, item_df, user):
-        self.item_df = item_df
-        self.user_obj = user
+    def __init__(self, user_v, class_user_v):
+        self.item_df, self.user_df = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100,
+                                                 min_movie_raings=50)
+        self.item_df.clean_items = self.item_df.clean_items[
+            self.item_df.clean_items.index.isin(self.user_df.ratings["movieId"].unique())]
+
+        self.user_v, self.class_user_v = user_v, class_user_v
         self.cos_sim = None
         self.pearson_sim = None
         self.euclidian_sim = None
+
         self.indexToId = pd.DataFrame(self.item_df.clean_items.index)
         self.indexToId["index"] = self.indexToId.index
 
@@ -30,16 +34,17 @@ class ContentCompare:
             return self.pearson_sim[index1][index2]
         return self.pearson_sim[index1]
 
-    def cosine_compare(self, id1, id2=None, item_df=None):
-        index1 = int(list(self.indexToId[self.indexToId["movieId"] == id1]["index"].values)[0])
-        if id2 is not None:
-            index2 = int(list(self.indexToId[self.indexToId["movieId"] == id2]["index"].values)[0])
+    def cosine_compare(self, id_to_compare_to, id_to_compare_to_exclusively=None, item_df=None):
+        index1 = int(list(self.indexToId[self.indexToId["movieId"] == id_to_compare_to]["index"].values)[0])
+
+        if id_to_compare_to_exclusively is not None:
+            index2 = int(list(self.indexToId[self.indexToId["movieId"] == id_to_compare_to_exclusively]["index"].values)[0])
 
         if item_df is None:
             item_df = self.item_df.clean_items
         self.cos_sim = pd.DataFrame(cosine_similarity(item_df.to_numpy()))
 
-        if id2 is not None:
+        if id_to_compare_to_exclusively is not None:
             return self.cos_sim[index1][index2]
         return self.cos_sim[index1]
 
@@ -70,11 +75,11 @@ class ContentCompare:
             movie_similarity_predictions = self.pearson_compare(user_vec_index, item_df=movie_df_cpy)
 
         userprofile_to_movie_similarities = pd.DataFrame(
-            {"comparison_val": self.cosine_compare(user_vec_index, item_df=movie_df_cpy),
-             "movieId": self.indexToId["movieId"]}).sort_values(by=['comparison_val'], ascending=False)
+            {"prediction_collaborative": movie_similarity_predictions,
+             "itemId": self.indexToId["movieId"]}).sort_values(by=['prediction_collaborative'], ascending=False)
 
         userprofile_to_movie_similarities = userprofile_to_movie_similarities[
-            userprofile_to_movie_similarities["movieId"] != user_vec_index]
+            userprofile_to_movie_similarities["itemId"] != user_vec_index]
 
         return userprofile_to_movie_similarities
 
@@ -91,11 +96,11 @@ class ContentCompare:
         movie_df_cpy = self.item_df.clean_items.copy()
 
         if profile_vector_type == "weighted":
-            user_vec = self.user_obj.createUserVector()
+            user_vec = self.user_v
             return self.compareVectorToItems(distance_measure=distance_measure, test_vector=user_vec)
 
         if profile_vector_type == "classed":
-            user_vec_classes, user_weight_classes = self.user_obj.createClassUserVecotor()
+            user_vec_classes, user_weight_classes = self.class_user_v
             class_ratings_df = pd.DataFrame({"movieId": movie_df_cpy.index})
 
             rating_val = 1

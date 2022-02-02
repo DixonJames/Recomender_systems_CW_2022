@@ -116,11 +116,13 @@ class CreateExperiments:
 
     def TrainAllPartialModels(self):
         group_num = 0
-        for train, test in self.train_test_sets.genCrossFoldGroups():
+
+        for test, train in self.train_test_sets.genCrossFoldGroups():
+
             mat = factoriseMatrix(load_matrix=False, ratings=train, iterations=30)
             store(mat, self.base_dir + f"group_{group_num}.matrixFact.obj")
 
-            NCM = neauralCollaberativeModel(load_mat=False, pass_mat=mat, load_model=False,  epoch_num=3)
+            NCM = neauralCollaberativeModel(load_mat=False, pass_mat=mat, load_model=False,  epoch_num=4, train_test_split=False, ratings=train)
             store(NCM, self.base_dir + f"group_{group_num}.NCM.obj")
             group_num += 1
 
@@ -137,29 +139,45 @@ class runExperiemts():
         else:
             self.train_test_sets = load(self.base_dir + "split_sets.DataSets.obj")
 
-    def createNewuserMovieDFs(self, userId, userReviews):
-        new_whole_user_df_ratings = pd.concat(
-            [self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] != userId], userReviews])
+    def reducedReviewDf(self, userId, userReviews):
+        """
+        reaplces one users reviews with the ones only in their test set
+        :param userId:
+        :param userReviews:
+        :return:
+        """
+        new_whole_user_df_ratings = pd.concat([userReviews[userReviews["userId"] == userId], self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] != userId]])
         return new_whole_user_df_ratings
 
     def run(self):
         overall_results = pd.DataFrame(columns=["userId", "CBF", "MF", "NCF"])
         for userIndex in self.whole_user_df.ratings["userId"].unique():
-            results = pd.DataFrame()
+            results = pd.DataFrame(columns=["movieId", "CBF", "MF", "NCF"])
             group_i = 0
-            for train, test in self.train_test_sets.genCrossFoldGroups():
-                reduced_review_df = self.createNewuserMovieDFs(userIndex, test)
+            for test, train in self.train_test_sets.genCrossFoldGroups():
+
 
                 mat_model = load(f"data/temp/experiments/group_{group_i}.matrixFact.obj")
                 ncf_model = load(f"data/temp/experiments/group_{group_i}.NCM.obj")
 
                 test_user = User(whole_user_df=self.whole_user_df, movie_df=self.whole_movie_df, user_id=userIndex,
                                  MF_model=mat_model, NCF_model=ncf_model)
-                test_user.user_reviews = test[test["userId"] == userIndex]
+                test_user.user_reviews = self.reducedReviewDf(userIndex, test)
+
 
                 results_CBF = test_user.contentBasedPrediction()
                 results_MF = test_user.matrixFactorPrediction()
                 results_NCF = test_user.NCFPPrediction()
+
+                all_results = pd.merge(results_CBF, pd.merge(results_NCF, results_MF, on='itemId', how='outer'), on='itemId',
+                         how='outer')
+                test_results = all_results[all_results["itemId"].isin(list(test[test["userId"]==userIndex]["movieId"]))]
+
+                formatted_results = pd.DataFrame()
+                for col_name, col_data in zip(["movieId", "CBF", "MF", "NCF"], [test_results["itemId"].values, test_results["prediction_collaborative"].values, test_results["prediction_matrix"].values, test_results["prediction_NCF"].values]):
+                    formatted_results[col_name] = col_data
+
+                results = pd.concat([results, formatted_results])
 
                 group_i += 1
 
@@ -173,9 +191,8 @@ def setupModels():
 
 
 if __name__ == '__main__':
-    setupModels()
+    #setupModels()
     items, users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
 
     experiments = runExperiemts(users, items, load_sets=True)
-
-    # experiments.run()
+    experiments.run()

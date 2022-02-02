@@ -35,15 +35,9 @@ class User:
 
         self.movie_df = movie_df.clean_items
 
-        if MF_model is not None:
-            self.MF_model = MF_model
-        else:
-            self.MF_model = factoriseMatrix(load_matrix=False, ratings=self.whole_user_df.ratings)
+        self.MF_model = MF_model
+        self.NCF_model = NCF_model
 
-        if NCF_model is not None:
-            self.NCF_model = NCF_model
-        else:
-            self.NCF_model = neauralCollaberativeModel(load_model=False, ratings=self.whole_user_df.ratings)
 
     def ratingWeighting(self, rating):
         """
@@ -95,15 +89,21 @@ class User:
         return user_vec_classes, user_weight_classes
 
     def contentBasedPrediction(self):
-        content_based = ContentCompare(self.whole_movie_df, self)
+        content_based = ContentCompare(user_v=self.createUserVector(), class_user_v=self.createClassUserVecotor())
         all_predictions = content_based.queryUser(profile_vector_type="weighted", distance_measure="cosine")
         return all_predictions
 
     def matrixFactorPrediction(self):
+        if self.MF_model is None:
+            self.MF_model = factoriseMatrix(load_matrix=False, iterations=30)
+
         all_predictions = self.MF_model.allPredictions(self.user_id)
         return all_predictions
 
     def NCFPPrediction(self):
+        if self.NCF_model is None:
+            self.NCF_model = neauralCollaberativeModel(load_model=False)
+
         all_predictions = self.NCF_model.allPredictions(self.user_id)
         return all_predictions
 

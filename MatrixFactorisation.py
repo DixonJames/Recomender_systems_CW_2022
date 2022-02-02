@@ -103,7 +103,7 @@ class MatrixFact:
 
             dct = {"userId": user_id,
                    "itemId": row[0],
-                   "prediction": prediction}
+                   "prediction_matrix": prediction}
 
             return pd.Series(dct)
 

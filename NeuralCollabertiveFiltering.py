@@ -119,6 +119,7 @@ class MLP_network(nn.Module):
 
 class NuralCollab:
     def __init__(self, user_latent_vecs, item_vecs, interactions, train_test_split=None, model_midlayers=4):
+
         exampleData = getExampleData(item_vecs=item_vecs, user_latent_vecs=user_latent_vecs)
         self.model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
 
@@ -199,12 +200,15 @@ class NuralCollab:
 
     def train(self, epoch_num=10):
         row_number = self.interactions.shape[0]
-        test, train = next(self.train_test_sets.genCrossFoldGroups())
+
+        if self.train_test_sets is not None:
+            test, train = next(self.train_test_sets.genCrossFoldGroups())
+
 
         RMSE_points = []
         ABSE_points = []
         for epoch in range(epoch_num):
-            print(f"Epoch: {epoch}/{epoch_num}")
+            print(f"Epoch: {epoch+1}/{epoch_num}")
 
             if self.train_test_sets is None:
                 batches = self.genInteractions()
@@ -289,7 +293,7 @@ class NuralCollab:
         predictions = ratings_df.apply(lambda row: pred(row), axis=1)
         return predictions
 
-    def allPredictions(self, user_id, alt_df):
+    def allPredictions(self, user_id, alt_df=None):
         """
                 predics all preddicrions for seen and unseen movies for a specific user
                 :param user_id:
@@ -309,7 +313,7 @@ class NuralCollab:
 
             dct = {"userId": user_id,
                    "itemId": row[0],
-                   "prediction": prediction}
+                   "prediction_NCF": prediction}
 
             return pd.Series(dct)
 
@@ -318,9 +322,11 @@ class NuralCollab:
         return predictions
 
 
-def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4):
+def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4, train_test_split=False, ratings=None):
     # get starting data
     item_data, user_data = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
+    if ratings is not None:
+        user_data.ratings = ratings
 
     if pass_mat is None:
         factoredMatrix = factoriseMatrix(load_matrix=load_mat, ratings=user_data.ratings, iterations=30)
@@ -333,7 +339,7 @@ def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epo
         #model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
 
         NC = NuralCollab(user_latent_vecs=user_latent_vecs, item_vecs=item_data,
-                         interactions=user_data.ratings, train_test_split=True, model_midlayers=model_midlayers)
+                         interactions=user_data.ratings, train_test_split=train_test_split, model_midlayers=model_midlayers)
         NC.train(epoch_num=epoch_num)
 
         store(NC, "data/temp/MLP_100.obj")
