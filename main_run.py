@@ -8,16 +8,16 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from scipy.stats.stats import pearsonr
+import pickle as pkl
 
 from data_cleaning import prepareData
 from contentBased import ContentCompare
-from data_cleaning import load
 from MatrixFactorisation import factoriseMatrix, MatrixFact
-from NeuralCollabertiveFiltering import neauralCollaberativeModel
+from NeuralCollabertiveFiltering import *
 from hybrid_rs import Mf_Collaberative_hybrid
 
-MF_model_path = "data/temp/main_use/group_4.matrixFact.obj"
-NCM_model_path = "data/temp/main_use/group_4.NCM.obj"
+MF_model_path = "data/temp/main_use/MAT_model_i30.obj"
+NCM_model_path = "data/temp/main_use/NCM_model_l3_e4.obj"
 
 today_date = datetime(2022, 1, 30)
 
@@ -38,7 +38,6 @@ class User:
 
         self.MF_model = MF_model
         self.NCF_model = NCF_model
-
 
     def ratingWeighting(self, rating):
         """
@@ -103,7 +102,9 @@ class User:
 
     def hybridPrediction(self, CB_weighting=0.5):
 
-        hybrid_model = Mf_Collaberative_hybrid(CB_pred=self.contentBasedPrediction(), MF_pred=self.matrixFactorPrediction(), reviews=self.user_reviews, CB_weighting=CB_weighting)
+        hybrid_model = Mf_Collaberative_hybrid(CB_pred=self.contentBasedPrediction(),
+                                               MF_pred=self.matrixFactorPrediction(), reviews=self.user_reviews,
+                                               CB_weighting=CB_weighting)
         all_predictions = hybrid_model.allPredictions()
 
         return all_predictions
@@ -116,15 +117,25 @@ class User:
         return all_predictions
 
     def hybrid_recommendations(self, number_recs=30, CB_weighting=0.5):
-
+        """
+        actauly gives the recs
+        :param number_recs: number of recs
+        :param CB_weighting: weigting given to the CB. 1- this is the weighting for MF
+        :return:
+        """
         hybrid_model = Mf_Collaberative_hybrid(CB_pred=self.contentBasedPrediction(),
                                                MF_pred=self.matrixFactorPrediction(), reviews=self.user_reviews,
                                                CB_weighting=CB_weighting)
         all_recommendations = (hybrid_model.rankCandidates(number_recs=number_recs))["itemId"].values
 
-        return all_recommendations
+        return all_recommendations.astype(int)
 
     def NCF_recommendations(self, number_recs=30):
+        """
+        actualy gives the NCF recs
+        :param number_recs: number of recs
+        :return:
+        """
         if self.NCF_model is None:
             self.NCF_model = neauralCollaberativeModel(load_model=False)
 
@@ -134,12 +145,23 @@ class User:
         return (all_recommendations.head(number_recs))["itemId"].values.astype(int)
 
 
+def load(path):
+    try:
+        with open(path, 'rb') as pickle_file:
+            content = pkl.load(pickle_file)
+        return content
+    except:
+        return None
+
+
 class RecommenderSystem:
     def __init__(self, MF_model_path, NCM_model_path):
-        self.items, self.users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100,
-                                             min_movie_raings=50)
-        self.MF_model_path = MF_model_path
-        self.NCM_model_path = NCM_model_path
+        self.items, self.users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=0,
+                                             min_movie_raings=0)
+        self.MF_model = load(MF_model_path)
+        self.NCM_model = load(NCM_model_path)
+
+        self.screen_type = "desktop"
 
         self.current_user = None
         self.current_user_id = None
@@ -163,16 +185,24 @@ class RecommenderSystem:
         print("2)   get recommendations")
         print("3)   crete new rating")
         print("4)   quit session")
+        print("5)   show experiments")
 
-        option = self.IOResponse("Enter selection", ["1", "2", "3", "4"])
+        option = self.IOResponse("Enter selection", ["1", "2", "3", "4", "5"])
         if option == "1":
             self.selectUser()
         elif option == "2":
-            self.generateRecomendations()
+            self.recomendationsHandler()
         elif option == "3":
-            self.createRating()
+            self.createRating(return_menue=True)
         elif option == "4":
             sys.exit()
+        elif option == "5":
+            # not done yet
+            sys.exit()
+
+    def changeScreenSize(self):
+        self.screen_type = self.IOResponse("Select screen size", ["desktop", "mobile"])
+        self.mainMenue()
 
     def IOResponse(self, message, options=None):
 
@@ -274,11 +304,11 @@ class RecommenderSystem:
 
         self.current_user_id = userId
         self.current_user = User(whole_user_df=self.users, movie_df=self.items, user_id=userId,
-                                 MF_model=self.MF_model_path, NCF_model=self.NCM_model_path)
+                                 MF_model=self.MF_model, NCF_model=self.NCM_model)
 
         self.mainMenue()
 
-    def generateRecomendations(self):
+    def recomendationsHandler(self):
         """
         select desired recommender system
         churns out as many responses as required
@@ -293,7 +323,49 @@ class RecommenderSystem:
                                          ignore_index=True)
         print(tabulate(df_selector, headers='keys', tablefmt='psql', showindex=False))
 
-        self.IOResponse("Select desired recommender system", ["1", "2"])
+        rs_type = self.IOResponse("Select desired recommender system", ["1", "2"])
+
+        self.generateRecomendations(rs_type=rs_type)
+        self.mainMenue()
+
+    def generateRecomendations(self, rs_type="2"):
+
+        # testing
+        self.current_user = User(whole_user_df=self.users, movie_df=self.items, user_id=1,
+                                 MF_model=self.MF_model, NCF_model=self.NCM_model)
+        # testing
+
+        if rs_type == "2":
+            rs = self.current_user.hybrid_recommendations
+        else:
+            rs = self.current_user.NCF_recommendations
+
+        if self.screen_type == "desktop":
+            rec_num = 30
+        else:
+            rec_num = 10
+
+        more_recs = True
+        rec_set = 1
+        while more_recs:
+            all_current_recs = rs(number_recs=rec_num * rec_set)
+            current_recs = all_current_recs[0 + (1 - rec_set) * rec_num:(rec_set) * rec_num + 1]
+
+            detailed_recs = (self.items.genres[self.items.genres["movieId"].isin(current_recs)])[
+                ["movieId", "title", "genres_x", "plots"]]
+
+            print()
+            print(tabulate(detailed_recs, headers='keys', tablefmt='psql', showindex=False))
+            print()
+
+            user_resp = self.IOResponse("more/end recommendations? \nor change recommender system?",
+                                        ["end", "more", "change"])
+            if user_resp == "MORE":
+                rec_set += 1
+            elif user_resp == "CHANGE":
+                self.recomendationsHandler()
+            else:
+                more_recs = False
 
         self.mainMenue()
 

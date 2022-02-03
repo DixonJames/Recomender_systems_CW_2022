@@ -8,6 +8,7 @@ from nltk.corpus import stopwords
 from sklearn import preprocessing
 from itertools import combinations
 from sklearn.feature_extraction.text import TfidfVectorizer
+
 from pandas import DataFrame
 from scipy import spatial
 import gensim
@@ -17,6 +18,15 @@ import pickle as pkl
 from random import shuffle
 import matplotlib.pyplot as plt
 
+def updateNltkWords():
+    try:
+        print("downloading common wordlisml_tags_lookupts")
+        nltk.download('stopwords', quiet=True)
+        nltk.download('punkt', quiet=True)
+    except:
+        print("couldn't download latest lists")
+
+updateNltkWords()
 
 def plot(point_series, names, logScale=False):
     from math import log
@@ -29,13 +39,7 @@ def plot(point_series, names, logScale=False):
     plt.legend()
     plt.show()
 
-def updateNltkWords():
-    try:
-        print("downloading common wordlisml_tags_lookupts")
-        nltk.download('stopwords', quiet=True)
-        nltk.download('punkt', quiet=True)
-    except:
-        print("couldn't download latest lists")
+
 
 
 def getCSV(path, sep=None):
@@ -260,7 +264,7 @@ class ItemVec:
         :param tag_vectoriser: modle that vectorisese tag stings
         :param plot_vectoriser: model that vectorises plot stings
         """
-        updateNltkWords()
+
         self.tag_lookup = tag_labels
         self.plot_vectoriser = plot_vectoriser
         self.tag_vectoriser = tag_vectoriser

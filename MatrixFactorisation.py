@@ -3,8 +3,6 @@ import pandas as pd
 from data_cleaning import getCSV, load, UserVec, ItemVec, store, prepareData, plot
 
 
-
-
 class MatrixFact:
     def __init__(self, ratings_df, iterations, latent_vec_size=10, l4=0.02, gamma=0.005,
                  verbose=False, train_test_split=False):
@@ -40,12 +38,7 @@ class MatrixFact:
         self.user_latent_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
         self.item_latent_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
 
-    def save(self, path=None):
-        # store(self.plots, "data/temp/plots.pkl")
-        if path is None:
-            store(self, "data/temp/MatrixFact_10.pkl")
-        else:
-            store(self, path)
+
 
     def originalRating(self, i, u):
         return \
@@ -164,12 +157,11 @@ class MatrixFact:
                 self.SDE()
 
             if train_test_flag:
-
                 regularised_squared_error = sum(predicitons["reg_sqr_err"])
                 avg_regularised_squared_error = sum(predicitons["reg_sqr_err"]) / predicitons.shape[0]
                 print(f"{regularised_squared_error}, {avg_regularised_squared_error}")
                 points.append((train_iteration, avg_regularised_squared_error))
-                #plot(points)
+                # plot(points)
         pass
 
     def predict(self, user_i, item_i):
@@ -186,8 +178,6 @@ class MatrixFact:
         return prediction
 
 
-
-
 def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=32, train_test_split=False):
     # after gone though pre-procesesing
     if ratings is None:
@@ -201,14 +191,14 @@ def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=
         mat.learnModelParams()
 
     else:
-        mat = load("data/temp/MatrixFact_30_OPT.pkl")
+        mat = load("data/temp/main_use/MAT_model_i30.obj")
 
-    if save_path is not None:
-        mat.save(save_path)
+
 
     return mat
 
 
 if __name__ == '__main__':
-    #most genral number of iterations is 30
-    factoriseMatrix(train_test_split=True, iterations=30)
+    # most genral number of iterations is 30
+    mat = factoriseMatrix(train_test_split=False, iterations=30)
+    # store(mat, "data/temp/main_use/MAT_model_i30.obj")

@@ -154,7 +154,12 @@ class runExperiemts():
 
     def run(self):
         overall_results = pd.DataFrame(columns=["userId", "user interactions", "absError_hybrid", "absError_NCF", "unexp_CBF&MF_25", "unexp_CBF&MF_10", "unexp_NCF_25", "unexp_NCF_10"])
+        user_i = 1
+        user_num = len(self.whole_user_df.ratings["userId"].unique())
         for userIndex in self.whole_user_df.ratings["userId"].unique():
+            print(f"{100*(user_i/user_num)}%")
+            user_i+=1
+
             results = pd.DataFrame(columns=["movieId", "CBF&MF", "NCF"])
             group_i = 0
 
@@ -223,6 +228,8 @@ class runExperiemts():
                                     "unexp_NCF_10":results["unexp_NCF_10"]}, ignore_index=True)
 
             pass
+        store(overall_results, "data/temp/experiments/overall_results.obj")
+        return overall_results
 
 
 def setupModels():

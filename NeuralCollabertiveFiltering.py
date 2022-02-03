@@ -10,8 +10,8 @@ import pandas as pd
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device: {device}")
 
-
 all_plts = []
+
 
 # debug
 # device = "cpu"
@@ -106,8 +106,8 @@ class MLP_network(nn.Module):
         r = MLPBlock(self.input_dim[0], 32).forward(r)
 
         midlayer_dims = self.layerChooser()
-        for i in range(len(midlayer_dims)-1):
-            r = MLPBlock(midlayer_dims[i], midlayer_dims[i+1]).forward(r)
+        for i in range(len(midlayer_dims) - 1):
+            r = MLPBlock(midlayer_dims[i], midlayer_dims[i + 1]).forward(r)
 
         r = self.final_layer.forward(r)
         r = torch.sigmoid(r)
@@ -204,11 +204,10 @@ class NuralCollab:
         if self.train_test_sets is not None:
             test, train = next(self.train_test_sets.genCrossFoldGroups())
 
-
         RMSE_points = []
         ABSE_points = []
         for epoch in range(epoch_num):
-            print(f"Epoch: {epoch+1}/{epoch_num}")
+            print(f"Epoch: {epoch + 1}/{epoch_num}")
 
             if self.train_test_sets is None:
                 batches = self.genInteractions()
@@ -245,11 +244,10 @@ class NuralCollab:
                 RMSE_points.append((epoch, regularised_squared_error))
                 ABSE_points.append((epoch, mean_abs_error))
 
-                #if epoch % 10 == 0:
-                #plot(point_series=[RMSE_points, ABSE_points], names=["RMSE", "ABS_Error"])
-                tot_points = {"RMSE":RMSE_points, "ABSE":ABSE_points}
+                # if epoch % 10 == 0:
+                # plot(point_series=[RMSE_points, ABSE_points], names=["RMSE", "ABS_Error"])
+                tot_points = {"RMSE": RMSE_points, "ABSE": ABSE_points}
                 all_plts.append(tot_points)
-
 
         pass
         # checkpointModel(self.model, f'score_model_{epoch}.pth')
@@ -322,7 +320,8 @@ class NuralCollab:
         return predictions
 
 
-def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4, train_test_split=False, ratings=None):
+def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4,
+                              train_test_split=False, ratings=None):
     # get starting data
     item_data, user_data = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
     if ratings is not None:
@@ -336,22 +335,23 @@ def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epo
     if not load_model:
         user_latent_vecs = factoredMatrix.user_latent_v
         exampleData = getExampleData(item_vecs=item_data, user_latent_vecs=user_latent_vecs)
-        #model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
+        # model = MLP_network(exampleData, 1, 5, midlayers=model_midlayers).to(device)
 
         NC = NuralCollab(user_latent_vecs=user_latent_vecs, item_vecs=item_data,
-                         interactions=user_data.ratings, train_test_split=train_test_split, model_midlayers=model_midlayers)
+                         interactions=user_data.ratings, train_test_split=train_test_split,
+                         model_midlayers=model_midlayers)
         NC.train(epoch_num=epoch_num)
 
-        store(NC, "data/temp/MLP_100.obj")
+        #store(NC, "data/temp/main_use/NCM_model_l3_e4.obj")
     else:
-        NC = load("data/temp/MLP_100.obj")
+        NC = load("data/temp/main_use/NCM_model_l3_e4.obj")
 
     return NC
+
 
 if __name__ == '__main__':
     # best number of epocks is 3
     # plot(point_series=[[(1,2), (3,4)], [(2,2), (3,5), (1,6)]], names=["RMSE", "ABS_Error"])
 
-
-    neauralCollaberativeModel(load_mat=True, load_model=False, model_midlayers=3, epoch_num=3)
-    store(all_plts, "data/temp/midlayer_cahgne_all_plts.obj")
+    NC = neauralCollaberativeModel(load_mat=True, load_model=False, model_midlayers=3, epoch_num=4)
+    store(NC, "data/temp/main_use/NCM_model_l3_e4.obj")
