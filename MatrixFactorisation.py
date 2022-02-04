@@ -38,8 +38,6 @@ class MatrixFact:
         self.user_latent_v = np.random.normal(size=(self.users_n, self.latent_vec_size)) / self.latent_vec_size
         self.item_latent_v = np.random.normal(size=(self.item_n, self.latent_vec_size)) / self.latent_vec_size
 
-
-
     def originalRating(self, i, u):
         return \
             self.ratings_df.loc[(self.ratings_df["movieId"] == i) & (self.ratings_df["userId"] == u)]["rating"].values[
@@ -181,7 +179,7 @@ class MatrixFact:
 def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=32, train_test_split=False):
     # after gone though pre-procesesing
     if ratings is None:
-        ml_ratings = getCSV("data/ml-latest-small/ratings.csv")
+        ml_ratings = getCSV("data/ml-25m/ratings.csv")
     else:
         ml_ratings = ratings
 
@@ -191,9 +189,7 @@ def factoriseMatrix(load_matrix=False, save_path=None, ratings=None, iterations=
         mat.learnModelParams()
 
     else:
-        mat = load("data/temp/main_use/MAT_model_i30.obj")
-
-
+        mat = load("data/cleaned_data/mat_25m")
 
     return mat
 

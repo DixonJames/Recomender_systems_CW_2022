@@ -18,6 +18,7 @@ import pickle as pkl
 from random import shuffle
 import matplotlib.pyplot as plt
 
+
 def updateNltkWords():
     try:
         print("downloading common wordlisml_tags_lookupts")
@@ -26,7 +27,9 @@ def updateNltkWords():
     except:
         print("couldn't download latest lists")
 
+
 updateNltkWords()
+
 
 def plot(point_series, names, logScale=False):
     from math import log
@@ -38,8 +41,6 @@ def plot(point_series, names, logScale=False):
     plt.ylabel('Error Size')
     plt.legend()
     plt.show()
-
-
 
 
 def getCSV(path, sep=None):
@@ -306,7 +307,6 @@ class ItemVec:
         :return:
         """
         clean = self.genres.copy()
-        year = pd.Series
 
         def extractYear(row):
             title = row["title"].replace(" ", "")
@@ -374,7 +374,7 @@ class ItemVec:
         self.plots["compressed_title"] = pd.Series(np.vectorize(regulariseTitle)(self.plots["title"]))
 
         def get_tag_str(id):
-            return " ".join(self.tags[self.tags["movieId"] == id]["tag"].values)
+            return " ".join(self.tags[self.tags["movieId"] == id]["tag"].values.astype(str))
 
         def get_plot_str(row):
             title = row["compressed_title"]
@@ -543,7 +543,6 @@ class DataSets:
             counts = counts.astype('int')
             counts = counts.rename({"index": "movieId", "movieId": f"group_{group_i}"}, axis='columns')
 
-
             for count_record in counts.iterrows():
                 self.movie_in_group_check.loc[
                     self.movie_in_group_check["movieId"] == count_record[1]["movieId"], f"group_{group_i}"] = int(
@@ -556,19 +555,15 @@ class DataSets:
 
     def reballenceSets(self):
         for movieId, group_num in self.gen_movie_ballance(self.ratingsGroups):
-            #this is fiiiine
+            # this is fiiiine
             self.createRatingsGroups()
             break
 
     def genCrossFoldGroups(self):
         for group_i in range(self.group_number):
             test = self.ratingsGroups[group_i]
-            train = pd.concat([self.ratingsGroups[i] for i in range(self.group_number)if i != group_i])
+            train = pd.concat([self.ratingsGroups[i] for i in range(self.group_number) if i != group_i])
             yield test, train
-
-
-
-
 
 
 if __name__ == '__main__':

@@ -323,7 +323,7 @@ class NuralCollab:
 def neauralCollaberativeModel(load_mat=True, pass_mat=None, load_model=True, epoch_num=3, model_midlayers=4,
                               train_test_split=False, ratings=None):
     # get starting data
-    item_data, user_data = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
+    item_data, user_data = prepareData(load_stored_data=True, reduce=True, min_user_reviews=10, min_movie_raings=50)
     if ratings is not None:
         user_data.ratings = ratings
 
