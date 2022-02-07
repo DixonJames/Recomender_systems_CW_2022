@@ -60,10 +60,13 @@ class User:
         for index, row in self.user_reviews.iterrows():
             rating = row["rating"]
             movie_id = row["movieId"]
-            movie_vec = np.array(self.movie_df.loc[int(movie_id)])
+            movie_vec = np.array(self.movie_df.loc[int(movie_id)])[0]
             weighting = self.ratingWeighting(rating)
 
-            user_vec += (weighting * movie_vec)
+            try:
+                user_vec += (weighting * movie_vec)
+            except:
+                pass
         user_vec = user_vec / self.user_reviews.shape[0]
 
         return user_vec
@@ -89,7 +92,7 @@ class User:
         return user_vec_classes, user_weight_classes
 
     def contentBasedPrediction(self):
-        content_based = ContentCompare(user_v=self.createUserVector(), class_user_v=self.createClassUserVecotor())
+        content_based = ContentCompare(user_v=self.createUserVector())
         all_predictions = content_based.queryUser(profile_vector_type="weighted", distance_measure="cosine")
         return all_predictions
 

@@ -13,7 +13,7 @@ from main_run import User
 from math import log2
 
 
-class Unexpectedness:
+class Serendipity:
     def __init__(self, users, items):
         """
 
@@ -30,8 +30,8 @@ class Unexpectedness:
         unmberof usersin interacting with i / number of users
         :return: probability item interacted with
         """
-        interacted = (self.users.reviews[self.users.reviews["movieId"] == i])["userId"].unique().shape[0]
-        user_num = self.users.reviews["userId"].unique().shape[0]
+        interacted = (self.users.ratings[self.users.ratings["movieId"] == i])["userId"].unique().shape[0]
+        user_num = self.users.ratings["userId"].unique().shape[0]
         return interacted / user_num
 
     def p_double(self, i, j):
@@ -40,12 +40,12 @@ class Unexpectedness:
         unmber of users in interacting with i and j / number of users
         :return: probability item interacted with
         """
-        interacted_i = (self.users.reviews[self.users.reviews["movieId"] == i])["userId"].unique()
-        interacted_j = (self.users.reviews[self.users.reviews["movieId"] == j])["userId"].unique()
+        interacted_i = (self.users.ratings[self.users.ratings["movieId"] == i])["userId"].unique()
+        interacted_j = (self.users.ratings[self.users.ratings["movieId"] == j])["userId"].unique()
 
-        interacted_i_j = list(set(list(interacted_j.values)).intersection(set(list(interacted_i.values))))
+        interacted_i_j = list(set(list(interacted_j)).intersection(set(list(interacted_i))))
 
-        user_num = self.users.reviews["userId"].unique().shape[0]
+        user_num = self.users.ratings["userId"].unique().shape[0]
 
         return len(interacted_i_j) / user_num
 
@@ -68,34 +68,68 @@ class Unexpectedness:
 
         return cosine_similarity([vec_i, vec_j]).min()
 
+    def itemSurprise(self, i, H):
+        """
+        max PMI of i with each h in uesrs history H
+        :param i:
+        :param H:
+        :return:
+        """
+        return max([self.PMI(i, h) for h in H])
+
     def unexpectedness(self, I, H, metric="cos"):
         """
-        for a particular user
+        measuemtn of 'surprise' when recomending set I compared to history H
         :param I: users recommendations
         :param H: users historical interactions
         :param metric: cos/pmi
         :return:
         """
+
         i_vals = 0
         for i in I:
             h_vals = 0
             for h in H:
                 if metric == "cos":
-                    try:
-                        h_vals += self.cosine_sim(i, h)
-                    except:
-                        pass
+                    h_vals += self.cosine_sim(i, h)
                 else:
                     h_vals += self.PMI(i, h)
+
             h_vals = h_vals / len(H)
             i_vals += h_vals
         i_vals = i_vals / len(I)
 
         return i_vals
 
-    def scoreAll(self):
-        for userId in self.users.reviews["userId"].unique:
-            pass
+    def relevance(self, interactions, item):
+        if item in interactions:
+            return 1
+        return 0
+
+    def userSerendipity(self, historic_interactions, recomendations):
+        """
+        for one user
+        :param test_set:
+        :return:
+        """
+        def serendipitySingle(i):
+            return self.relevance(interactions=historic_interactions, item=i) * self.unexpectedness([i],
+                                                                                                    historic_interactions,
+                                                                                                    metric="PMI")
+
+        serendipitySingle_v = np.vectorize(serendipitySingle)
+        #tot = sum(serendipitySingle_v(recomendations))
+        tot = 0
+        for i in recomendations:
+            if i in set(recomendations):
+                relevance = 1
+            else:
+                relevance = 0
+            tot += relevance * self.unexpectedness([i], historic_interactions, metric="PMI")
+
+        #tot = sum([self.relevance(interactions=historic_interactions, item=i) * self.unexpectedness([i],historic_interactions,metric="PMI") for i in recomendations])
+
+        return tot / len(recomendations)
 
 
 class CreateExperiments:
@@ -138,7 +172,7 @@ class runExperiemts():
         else:
             self.train_test_sets = load(self.base_dir + "split_sets.DataSets.obj")
 
-        self.unexpectedness = Unexpectedness(users=self.whole_user_df, items=self.whole_movie_df)
+        self.serendipity = Serendipity(users=self.whole_user_df, items=self.whole_movie_df)
 
     def reducedReviewDf(self, userId, test_userReviews):
         """
@@ -153,14 +187,18 @@ class runExperiemts():
         return new_whole_user_df_ratings
 
     def run(self):
-        overall_results = pd.DataFrame(columns=["userId", "user interactions", "absError_hybrid", "absError_NCF", "unexp_CBF&MF_25", "unexp_CBF&MF_10", "unexp_NCF_25", "unexp_NCF_10"])
+        overall_results = pd.DataFrame(
+            columns=["userId", "user interactions", "absError_hybrid", "absError_NCF", "serendipity_CBF&MF_25",
+                     "serendipity_CBF&MF_10", "serendipity_NCF_25", "serendipity_NCF_10"])
         user_i = 1
         user_num = len(self.whole_user_df.ratings["userId"].unique())
         for userIndex in self.whole_user_df.ratings["userId"].unique():
-            print(f"{100*(user_i/user_num)}%")
-            user_i+=1
+            historic_interactions = (self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] == userIndex])[
+                "movieId"].values
+            print(f"{100 * (user_i / user_num)}%")
+            user_i += 1
 
-            results = pd.DataFrame(columns=["movieId", "CBF&MF", "NCF"])
+            individual_results = pd.DataFrame(columns=["movieId", "CBF&MF", "NCF"])
             group_i = 0
 
             mat_model = load(f"data/temp/experiments/group_{group_i}.matrixFact.obj")
@@ -169,8 +207,12 @@ class runExperiemts():
             overall_user = User(whole_user_df=self.whole_user_df, movie_df=self.whole_movie_df, user_id=userIndex,
                                 MF_model=mat_model, NCF_model=ncf_model)
 
+            serendipity = {"serendipity_CBF&MF_25": 0, "serendipity_CBF&MF_10": 0, "serendipity_NCF_25": 0,
+                           "serendipity_NCF_10": 0}
+
 
             for test, train in self.train_test_sets.genCrossFoldGroups():
+
 
                 mat_model = load(f"data/temp/experiments/group_{group_i}.matrixFact.obj")
                 ncf_model = load(f"data/temp/experiments/group_{group_i}.NCM.obj")
@@ -185,6 +227,11 @@ class runExperiemts():
                 results_HYBRID = test_user.hybridPrediction()
                 results_NCF = test_user.NCFPPrediction()
 
+                recs_HYBRID_25 = test_user.hybrid_recommendations(number_recs=25)
+                recs_NCF_25 = test_user.NCF_recommendations(number_recs=25)
+                recs_HYBRID_10 = test_user.hybrid_recommendations(number_recs=10)
+                recs_NCF_10 = test_user.NCF_recommendations(number_recs=10)
+
                 all_results = pd.merge(results_NCF, results_HYBRID, on='itemId', how='outer')
                 test_results = all_results[
                     all_results["itemId"].isin(list(test[test["userId"] == userIndex]["movieId"]))]
@@ -197,39 +244,52 @@ class runExperiemts():
                                                test_results["prediction_NCF"].values]):
                     formatted_results[col_name] = col_data
 
-                results = pd.concat([results, formatted_results])
+                individual_results = pd.concat([individual_results, formatted_results])
+
+                serendipity["serendipity_CBF&MF_25"] += self.serendipity.userSerendipity(
+                    historic_interactions=historic_interactions, recomendations=recs_HYBRID_25)
+                serendipity["serendipity_CBF&MF_10"] += self.serendipity.userSerendipity(
+                    historic_interactions=historic_interactions, recomendations=recs_HYBRID_10)
+                serendipity["serendipity_NCF_25"] += self.serendipity.userSerendipity(
+                    historic_interactions=historic_interactions, recomendations=recs_NCF_25)
+                serendipity["serendipity_NCF_10"] += self.serendipity.userSerendipity(
+                    historic_interactions=historic_interactions, recomendations=recs_NCF_10)
 
                 group_i += 1
-            results = pd.merge(self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] == userIndex], results,
-                               on='movieId', how='outer')
-            results["absError_hybrid"] = abs(results["rating"] - results["CBF&MF"])
-            results["absError_NCF"] = abs(results["rating"] - results["NCF"])
 
-            users_ratings = (self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] == userIndex])["movieId"].values
+            individual_results = pd.merge(self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] == userIndex],
+                                          individual_results,
+                                          on='movieId', how='outer')
+            individual_results["absError_hybrid"] = abs(individual_results["rating"] - individual_results["CBF&MF"])
+            individual_results["absError_NCF"] = abs(individual_results["rating"] - individual_results["NCF"])
 
+            users_ratings = (self.whole_user_df.ratings[self.whole_user_df.ratings["userId"] == userIndex])[
+                "movieId"].values
 
-            results["unexp_CBF&MF_25"] = self.unexpectedness.unexpectedness(I=overall_user.hybrid_recommendations(25),
-                                                                            H=users_ratings)
-            results["unexp_CBF&MF_10"] = self.unexpectedness.unexpectedness(I=overall_user.hybrid_recommendations(10),
-                                                                            H=users_ratings)
+            serendipity["serendipity_CBF&MF_25"] = serendipity["serendipity_CBF&MF_25"] / group_i
 
-            results["unexp_NCF_25"] = self.unexpectedness.unexpectedness(I=overall_user.NCF_recommendations(25),
-                                                                         H=users_ratings)
-            results["unexp_NCF_10"] = self.unexpectedness.unexpectedness(I=overall_user.NCF_recommendations(10),
-                                                                         H=users_ratings)
+            serendipity["serendipity_CBF&MF_10"] = serendipity["serendipity_CBF&MF_10"] / group_i
+
+            serendipity["serendipity_NCF_25"] = serendipity["serendipity_NCF_25"] / group_i
+
+            serendipity["serendipity_NCF_10"] = serendipity["serendipity_NCF_10"] / group_i
 
             overall_results.append({"userId": userIndex,
                                     "user interactions": len(users_ratings),
-                                    "absError_hybrid": results["absError_hybrid"],
-                                    "absError_NCF": results["absError_NCF"],
-                                    "unexp_CBF&MF_25":results["unexp_CBF&MF_25"],
-                                   "unexp_CBF&MF_10":results["unexp_CBF&MF_10"],
-                                    "unexp_NCF_25":results["unexp_NCF_25"],
-                                    "unexp_NCF_10":results["unexp_NCF_10"]}, ignore_index=True)
+                                    "absError_hybrid": individual_results["absError_hybrid"],
+                                    "absError_NCF": individual_results["absError_NCF"],
+                                    "serendipity_CBF&MF_25": serendipity["serendipity_CBF&MF_25"],
+                                    "serendipity_CBF&MF_10": serendipity["serendipity_CBF&MF_10"],
+                                    "serendipity_NCF_25": serendipity["serendipity_NCF_25"],
+                                    "serendipity_NCF_10": serendipity["serendipity_NCF_10"]},
+                                   ignore_index=True)
 
-            pass
-        store(overall_results, "data/temp/experiments/overall_results.obj")
+            store(overall_results, "data/temp/experiments/overall_results.obj")
         return overall_results
+
+    def display(self):
+        overall_results = load("data/temp/experiments/overall_results.obj")
+
 
 
 def setupModels():
@@ -243,4 +303,5 @@ if __name__ == '__main__':
     items, users = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100, min_movie_raings=50)
 
     experiments = runExperiemts(users, items, load_sets=True)
-    experiments.run()
+    #experiments.run()
+    experiments.display()

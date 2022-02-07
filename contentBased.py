@@ -7,13 +7,13 @@ from scipy.stats.stats import pearsonr
 
 
 class ContentCompare:
-    def __init__(self, user_v, class_user_v):
+    def __init__(self, user_v):
         self.item_df, self.user_df = prepareData(load_stored_data=True, reduce=True, min_user_reviews=100,
                                                  min_movie_raings=50)
         self.item_df.clean_items = self.item_df.clean_items[
             self.item_df.clean_items.index.isin(self.user_df.ratings["movieId"].unique())]
 
-        self.user_v, self.class_user_v = user_v, class_user_v
+        self.user_v = user_v
         self.cos_sim = None
         self.pearson_sim = None
         self.euclidian_sim = None
